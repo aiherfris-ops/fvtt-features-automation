@@ -1,0 +1,41 @@
+# Features Automation
+
+Автоматизация классов, подклассов, видов и черт **dnd5e** в Foundry VTT. Модуль чинит данные, которые
+импорт Plutonium оставляет неполными, и добавляет недостающую механику: диалоги выбора, эффекты, бонусы.
+
+## Требования
+
+- Foundry VTT 14
+- dnd5e 5.3.x
+- Необязательно: midi-qol и DAE — от них зависят бонусы урона и часть боевых умений
+
+## Что автоматизировано
+
+**Классы:** изобретатель (Tinker's Magic), паладин (Divine Smite, Lay on Hands), псион (кости псионической
+энергии, дисциплины, Telekinetic Propel, Telepathic Connection), следопыт, плут (Sneak Attack),
+чародей (Innate Sorcery, Font of Magic, метамагия), волшебник (Arcane Recovery и Natural Recovery друида).
+
+**Подклассы:** Alchemist, Vengeance, Metamorph, Arachnoid Stalker, Wild Magic, Bladesinger.
+
+**Виды:** аасимар (Celestial Revelation), гном, тортл.
+
+**Черты:** Fighting Style: Dueling, Altered (Crooked Moon), Survivor (Grim Hollow).
+
+**Общие правила:** мастерство оружия (Graze, Vex, Topple и прочие).
+
+## Как устроено
+
+- `scripts/automations/` — по файлу на класс, подкласс, вид, черту или правило. Контракт описан
+  в `_template.js`: `{ id, kind, label, hint, identifiers, migrate(actor), register() }`.
+- Каждая автоматизация — отдельный переключатель в настройках модуля.
+- `migrate(actor)` — идемпотентная правка данных, выполняет активный ГМ. Отметка о выполнении хранится
+  для каждой автоматизации отдельно (`flags.features-automation.migrated.<id>`), поэтому новая
+  автоматизация доходит и до уже проверенных персонажей.
+- Кого проверять — настройка «Проверка данных: кого проверять» и меню «Персонажи игроков»
+  (списки для каждого игрока, включая персонажей ГМа). Вручную: `featuresAutomation.runMigration({ actors: ["Имя"] })`.
+- Общее ядро в `scripts/core/`: диспетчеры хуков (один слушатель на модуль), кэш настроек,
+  общее окно «Дополнительный урон» для всех бонусов сразу, временные предметы.
+
+## Установка
+
+Скопировать папку модуля в `Data/modules/features-automation` и включить в управлении модулями.
