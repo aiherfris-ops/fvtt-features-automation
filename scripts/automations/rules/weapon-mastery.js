@@ -1,11 +1,12 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
 import { chat, damageTypeLabel, debugNote, runAsync, turnKey } from "../../core/utils.js";
 import { onPreAttackRoll, onPreDamageRoll } from "../../core/hooks.js";
+import { applyEffects, attackWorkflow, midiActive } from "../../core/native.js";
 
 /*
  * Weapon Mastery (PHB 2024) — свойства мастерства оружия. dnd5e позволяет выбрать свойство в броске атаки
  * (только если у персонажа есть мастерство этим оружием) и сохраняет его в attackRoll.options.mastery;
- * эффекты применяет этот файл после броска атаки Midi.
+ * эффекты применяет этот файл после броска атаки (Midi или родной хук dnd5e).
  * Попадание определяется сравнением броска с КД цели (в мире выключена автопроверка попаданий).
  *
  * Cleave  — попадание рукопашной: атака второго существа в 5 футах от цели, без модификатора к урону (раз в ход)
@@ -37,11 +38,8 @@ const weaponDamageType = (workflow, item) =>
   ?? Array.from(item?.system.damage?.base?.types ?? [])[0]
   ?? "bludgeoning";
 
-/** Эффект на чужом актёре: напрямую, если есть права, иначе через ГМа (Midi) */
-async function addEffect(actor, effectData) {
-  if (actor.isOwner) return actor.createEmbeddedDocuments("ActiveEffect", [effectData]);
-  return globalThis.MidiQOL?.createEffects?.({ actorUuid: actor.uuid, effects: [effectData], options: {} });
-}
+/** Эффект на чужом актёре: напрямую, если есть права, иначе через Midi или ГМа */
+const addEffect = (actor, effectData) => applyEffects(actor, [effectData]);
 
 /** До начала следующего хода атакующего (эффект создаётся в его ход) */
 const untilYourNextTurn = { value: 1, units: "rounds", expiry: "turnStart" };
@@ -66,7 +64,9 @@ async function sap(workflow, target, item) {
   await addEffect(target.actor, {
     name: "Ослаблен (Sap)", img: item.img, origin: item.uuid, duration: untilYourNextTurn,
     description: "<p>Помеха на следующий бросок атаки до начала хода атаковавшего.</p>",
+    // Флаг midi оставлен для миров с midi-qol; без него помеху даёт хук броска атаки по флагу sapped
     system: { changes: [{ key: "flags.midi-qol.disadvantage.attack.all", type: "override", value: "1", phase: "initial" }] },
+    flags: { [MODULE_ID]: { sapped: true } },
     flags: { dae: { stackable: "noneName", specialDuration: ["1Attack"] } },
   });
   await chat(workflow.actor, `<p>Sap: у <strong>${target.name}</strong> помеха на следующую атаку.</p>`);
@@ -209,7 +209,24 @@ export default {
   appliesTo: () => false, // данные не правим, только хуки
 
   register() {
-    Hooks.on("midi-qol.AttackRollComplete", (workflow) => runAsync("Weapon Mastery", () => onAttackRollComplete(workflow)));
+    if (midiActive()) {
+      Hooks.on("midi-qol.AttackRollComplete", (workflow) => runAsync("Weapon Mastery", () => onAttackRollComplete(workflow)));
+    } else {
+      // Родной путь dnd5e: тот же разбор, но данные берём из броска атаки
+      Hooks.on("dnd5e.rollAttackV2", (rolls, { subject } = {}) => {
+        if (!subject?.actor?.isOwner) return;
+        runAsync("Weapon Mastery", () => onAttackRollComplete(attackWorkflow(subject, rolls)));
+      });
+    }
+
+    // Sap: помеха на следующий бросок атаки задетого (без midi флаг midi не работает)
+    onPreAttackRoll((config) => {
+      const actor = config?.subject?.actor;
+      const sapped = actor?.effects?.filter(e => e.active && e.getFlag(MODULE_ID, "sapped")) ?? [];
+      if (!sapped.length) return;
+      config.disadvantage = true;
+      setTimeout(() => actor.deleteEmbeddedDocuments("ActiveEffect", sapped.map(e => e.id)), 0);
+    });
 
     // Vex: преимущество на следующую атаку по цели, эффект расходуется
     onPreAttackRoll((config) => {

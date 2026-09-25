@@ -1,7 +1,7 @@
 import { LOG, MODULE_ID } from "./core/constants.js";
 import { installNativeDamageBonus } from "./core/damage-bonus.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
-import { installAttackMemory, midiActive } from "./core/native.js";
+import { installAttackMemory, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
 import automations from "./automations/index.js";
 
@@ -24,6 +24,7 @@ Hooks.once("init", () => {
   });
   registerMigrationSettings();
   registry.registerSettings();
+  installEffectsQuery();
 });
 
 // Настройки мира доступны с setup — регистрируем хуки только включённых автоматизаций

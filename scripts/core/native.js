@@ -1,4 +1,4 @@
-import { LOG } from "./constants.js";
+import { LOG, MODULE_ID } from "./constants.js";
 
 /*
  * Работа без midi-qol: то, что раньше давал его рабочий процесс, собирается из родных хуков dnd5e.
@@ -6,7 +6,8 @@ import { LOG } from "./constants.js";
  * 1. Память об атаке. `dnd5e.rollAttackV2` даёт броски атаки: из них видно преимущество, помеху,
  *    критическое попадание, СЛ защиты цели и, значит, попал ли удар. Это запоминается для активности
  *    и используется на шаге урона (бонусы урона, мастерство оружия).
- * 2. Перехват броска урона. Хуки dnd5e синхронные, а окно выбора бонусов асинхронное, поэтому
+ * 2. Эффекты на чужих актёрах. Раньше их создавал midi от имени ГМа; теперь это запрос `CONFIG.queries`.
+ * 3. Перехват броска урона. Хуки dnd5e синхронные, а окно выбора бонусов асинхронное, поэтому
  *    оборачивается сам метод `rollDamage` активностей: до броска можно спросить игрока и дописать кости.
  */
 
@@ -115,6 +116,49 @@ export function patchRollDamage(before) {
     count++;
   }
   console.log(`${LOG} перехват броска урона: ${count}`);
+}
+
+/* Эффекты на чужих актёрах */
+
+const EFFECTS_QUERY = `${MODULE_ID}.createEffects`;
+
+/** ГМ создаёт эффекты на актёре по запросу игрока */
+export function installEffectsQuery() {
+  CONFIG.queries[EFFECTS_QUERY] = async ({ actorUuid, effects }) => {
+    const actor = await fromUuid(actorUuid);
+    if (!actor) return false;
+    await actor.createEmbeddedDocuments("ActiveEffect", effects);
+    return true;
+  };
+}
+
+/** Наложить эффекты: напрямую, если есть права, иначе через midi или активного ГМа */
+export async function applyEffects(actor, effects) {
+  if (!actor || !effects?.length) return;
+  if (actor.isOwner) return actor.createEmbeddedDocuments("ActiveEffect", effects);
+  if (midiActive() && globalThis.MidiQOL?.createEffects) {
+    return globalThis.MidiQOL.createEffects({ actorUuid: actor.uuid, effects, options: {} });
+  }
+  const gm = game.users.activeGM;
+  if (!gm) {
+    ui.notifications.warn("Эффект на чужом персонаже может наложить только ГМ — сейчас его нет в сети.");
+    return;
+  }
+  return gm.query(EFFECTS_QUERY, { actorUuid: actor.uuid, effects }, { timeout: 10_000 });
+}
+
+/* Броски атаки */
+
+/** Подобие рабочего процесса для правил, которым нужен результат броска атаки */
+export function attackWorkflow(activity, rolls) {
+  const roll = rolls?.[0];
+  const workflow = nativeWorkflow(activity, {});
+  return Object.assign(workflow, {
+    attackRoll: roll,
+    attackTotal: roll?.total,
+    isCritical: !!roll?.isCritical,
+    isFumble: !!roll?.isFumble,
+  });
 }
 
 /** Запомнить бросок атаки (вызывается из регистрации хуков) */
