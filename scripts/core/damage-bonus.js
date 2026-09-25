@@ -1,10 +1,15 @@
 import { LOG } from "./constants.js";
+import { midiActive, nativeWorkflow, patchRollDamage } from "./native.js";
 import { damageTypeLabel } from "./utils.js";
 
 /*
  * Единый DamageBonus-макрос Midi-QOL. Раньше каждое умение вешало актёру свой макрос и показывало
  * собственное окно: на одно попадание могло выпасть три вопроса подряд. Теперь Midi вызывает один
  * макрос `function.featuresAutomation.damageBonus`, он собирает все доступные бонусы и спрашивает один раз.
+ *
+ * Без midi-qol тот же набор поставщиков работает через родной путь dnd5e: перед броском урона
+ * (перехват `rollDamage`) открывается то же окно, а выбранные кости дописываются в этот же бросок
+ * отдельными строками со своим типом урона.
  *
  * Поставщик бонуса (provider):
  *   id        — уникальный ключ
@@ -29,6 +34,7 @@ export function registerDamageBonusProvider(provider) {
 export function getHitTarget(workflow) {
   const hit = workflow.hitTargets?.first?.();
   if (hit) return hit;
+  if (workflow.native) return workflow.targets?.first?.() ?? null;
   const autoCheckHit = globalThis.MidiQOL?.configSettings?.()?.autoCheckHit;
   if (!autoCheckHit || autoCheckHit === "none") return workflow.targets?.first?.() ?? null;
   return null;
@@ -49,6 +55,7 @@ export { damageTypeLabel };
 
 /** Подключить актёру единый макрос и убрать старые по одному на умение */
 export async function syncDamageBonusMacro(actor) {
+  if (!midiActive()) return; // без midi макросы не нужны: бонусы собирает родной путь dnd5e
   const current = (actor.getFlag("dnd5e", "DamageBonusMacro") ?? "").split(",").map(s => s.trim()).filter(Boolean);
   const kept = current.filter(m => !LEGACY_MACROS.some(legacy => m.endsWith(`.${legacy}`)));
   if (!kept.includes(DAMAGE_BONUS_MACRO)) kept.push(DAMAGE_BONUS_MACRO);
@@ -93,6 +100,66 @@ async function askBonuses(entries, target) {
   return picked ?? new Map();
 }
 
+/** Собрать предложения всех поставщиков и спросить игрока один раз */
+async function collectBonuses(context) {
+  const entries = [];
+  for (const provider of providers.values()) {
+    if (provider.enabled && !provider.enabled()) continue;
+    try {
+      const offer = await provider.prepare(context);
+      if (offer) entries.push({ provider, offer });
+    } catch (err) {
+      console.error(`${LOG} бонус урона «${provider.id}»:`, err);
+    }
+  }
+  if (!entries.length) return [];
+
+  const chosen = await askBonuses(entries, context.target);
+  const results = [];
+  for (const { provider, offer } of entries) {
+    const choice = provider.automatic ? true : chosen.get(provider.id);
+    if (!choice) continue;
+    try {
+      const result = await offer.apply(choice === true ? null : choice);
+      if (result) results.push(result);
+    } catch (err) {
+      console.error(`${LOG} применение бонуса «${provider.id}»:`, err);
+    }
+  }
+  return results;
+}
+
+/* Родной путь dnd5e (без midi-qol) */
+
+/** Перед броском урона: спросить бонусы и дописать их в тот же бросок отдельными строками */
+async function addNativeBonuses(activity, config) {
+  if (midiActive() || activity.type !== "attack") return;
+  const actor = activity.actor;
+  if (!actor?.isOwner) return;
+  const workflow = nativeWorkflow(activity, config);
+  // Промах: бонусы вроде скрытой атаки не предлагаются. Если СЛ защиты неизвестна, решает игрок
+  if (workflow.attack?.hit === false) return;
+  const target = getHitTarget(workflow);
+  if (!target) return;
+
+  const results = await collectBonuses({ workflow, actor, item: activity.item, target });
+  if (!results.length) return;
+  config.rolls ??= [];
+  for (const { damageRoll, damageType, flavor } of results) {
+    config.rolls.push({
+      parts: [String(damageRoll)],
+      data: activity.getRollData?.() ?? {},
+      options: { type: damageType, flavor, properties: [] },
+    });
+  }
+  console.log(`${LOG} добавлено к урону: ${results.map(r => `${r.flavor} ${r.damageRoll}`).join(", ")}`);
+}
+
+/** Включить сбор бонусов через хуки dnd5e (вызывается, когда midi-qol нет) */
+export function installNativeDamageBonus() {
+  patchRollDamage(addNativeBonuses);
+}
+
 /** Собственно макрос: Midi вызывает его один раз на бросок урона */
 async function damageBonus({ workflow, actor, item }) {
   try {
@@ -100,31 +167,7 @@ async function damageBonus({ workflow, actor, item }) {
     const target = getHitTarget(workflow);
     if (!target) return;
 
-    const context = { workflow, actor, item, target };
-    const entries = [];
-    for (const provider of providers.values()) {
-      if (provider.enabled && !provider.enabled()) continue;
-      try {
-        const offer = await provider.prepare(context);
-        if (offer) entries.push({ provider, offer });
-      } catch (err) {
-        console.error(`${LOG} бонус урона «${provider.id}»:`, err);
-      }
-    }
-    if (!entries.length) return;
-
-    const chosen = await askBonuses(entries, target);
-    const results = [];
-    for (const { provider, offer } of entries) {
-      const choice = provider.automatic ? true : chosen.get(provider.id);
-      if (!choice) continue;
-      try {
-        const result = await offer.apply(choice === true ? null : choice);
-        if (result) results.push(result);
-      } catch (err) {
-        console.error(`${LOG} применение бонуса «${provider.id}»:`, err);
-      }
-    }
+    const results = await collectBonuses({ workflow, actor, item, target });
     return results.length ? results : undefined;
   } catch (err) {
     console.error(`${LOG} ошибка damageBonus:`, err);

@@ -1,0 +1,123 @@
+import { LOG } from "./constants.js";
+
+/*
+ * Работа без midi-qol: то, что раньше давал его рабочий процесс, собирается из родных хуков dnd5e.
+ *
+ * 1. Память об атаке. `dnd5e.rollAttackV2` даёт броски атаки: из них видно преимущество, помеху,
+ *    критическое попадание, СЛ защиты цели и, значит, попал ли удар. Это запоминается для активности
+ *    и используется на шаге урона (бонусы урона, мастерство оружия).
+ * 2. Перехват броска урона. Хуки dnd5e синхронные, а окно выбора бонусов асинхронное, поэтому
+ *    оборачивается сам метод `rollDamage` активностей: до броска можно спросить игрока и дописать кости.
+ */
+
+export const midiActive = () => !!game.modules.get("midi-qol")?.active;
+
+/* Память об атаке */
+
+const attacks = new Map();
+const MEMORY_MS = 5 * 60 * 1000;
+
+const key = activity => activity?.uuid ?? `${activity?.actor?.uuid}:${activity?.id}`;
+
+function rememberAttack(activity, rolls) {
+  const roll = rolls?.[0];
+  if (!activity || !roll) return;
+  const ac = roll.options?.target ?? null;
+  const targets = [...game.user.targets];
+  const info = {
+    at: Date.now(),
+    advantage: !!roll.hasAdvantage,
+    disadvantage: !!roll.hasDisadvantage,
+    isCritical: !!roll.isCritical,
+    isFumble: !!roll.isFumble,
+    total: roll.total,
+    ac,
+    // Попадание известно, только если Foundry знала СЛ защиты цели
+    hit: ac === null ? null : roll.isCritical || (!roll.isFumble && roll.total >= ac),
+    targets,
+  };
+  attacks.set(key(activity), info);
+  return info;
+}
+
+/** Что известно о последней атаке этой активности */
+export function lastAttack(activity) {
+  const info = attacks.get(key(activity));
+  if (!info) return null;
+  if (Date.now() - info.at > MEMORY_MS) {
+    attacks.delete(key(activity));
+    return null;
+  }
+  return info;
+}
+
+/** Цель атаки: та, по которой попали, иначе выбранная игроком */
+export function attackTarget(activity) {
+  const info = lastAttack(activity);
+  return info?.targets?.[0] ?? [...game.user.targets][0] ?? null;
+}
+
+/**
+ * Подобие рабочего процесса midi для поставщиков бонусов и правил оружия.
+ * Поля те же, что использовались раньше: activity, item, token, targets, hitTargets, isCritical, advantage.
+ */
+export function nativeWorkflow(activity, config = {}) {
+  const actor = activity.actor;
+  const info = lastAttack(activity);
+  const tokens = info?.targets?.length ? info.targets : [...game.user.targets];
+  const list = {
+    size: tokens.length,
+    first: () => tokens[0] ?? null,
+    [Symbol.iterator]: () => tokens[Symbol.iterator](),
+  };
+  return {
+    macroPass: "DamageBonus",
+    native: true,
+    actor,
+    item: activity.item,
+    activity,
+    token: actor?.getActiveTokens?.()[0] ?? null,
+    targets: list,
+    // Без сведений о СЛ защиты попадание неизвестно — считаем, что удар прошёл, решает игрок
+    hitTargets: info?.hit === false ? { size: 0, first: () => null, [Symbol.iterator]: () => [][Symbol.iterator]() } : list,
+    attackMode: config.attackMode ?? activity.item?.system?.attackMode,
+    isCritical: !!(config.isCritical ?? info?.isCritical),
+    advantage: !!info?.advantage,
+    disadvantage: !!info?.disadvantage,
+    damageRolls: config.rolls,
+    attack: info,
+  };
+}
+
+/* Перехват броска урона */
+
+const patched = new Set();
+
+/**
+ * Обернуть `rollDamage` у всех классов активностей: перед броском вызывается `before(activity, config)`,
+ * который может дописать `config.rolls` (например, кости скрытой атаки).
+ */
+export function patchRollDamage(before) {
+  const classes = new Set(Object.values(CONFIG.DND5E.activityTypes ?? {}).map(t => t?.documentClass).filter(Boolean));
+  let count = 0;
+  for (const cls of classes) {
+    // Метод объявлен в общем примеси, поэтому оборачиваем объект, которому он принадлежит, один раз
+    let proto = cls.prototype;
+    while (proto && !Object.hasOwn(proto, "rollDamage")) proto = Object.getPrototypeOf(proto);
+    if (!proto || patched.has(proto)) continue;
+    patched.add(proto);
+    const original = proto.rollDamage;
+    proto.rollDamage = async function (config = {}, dialog = {}, message = {}) {
+      try { await before(this, config); }
+      catch (err) { console.error(`${LOG} подготовка урона:`, err); }
+      return original.call(this, config, dialog, message);
+    };
+    count++;
+  }
+  console.log(`${LOG} перехват броска урона: ${count}`);
+}
+
+/** Запомнить бросок атаки (вызывается из регистрации хуков) */
+export function installAttackMemory() {
+  Hooks.on("dnd5e.rollAttackV2", (rolls, { subject } = {}) => rememberAttack(subject, rolls));
+}
