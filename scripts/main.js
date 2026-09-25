@@ -1,7 +1,7 @@
 import { LOG, MODULE_ID } from "./core/constants.js";
 import { installNativeDamageBonus } from "./core/damage-bonus.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
-import { installAttackMemory, installEffectsQuery, midiActive } from "./core/native.js";
+import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
 import automations from "./automations/index.js";
 
@@ -33,6 +33,7 @@ Hooks.once("setup", () => {
   installAttackMemory();
   if (!midiActive()) {
     installNativeDamageBonus();
+    installDamageReduction();
     console.log(`${LOG} midi-qol не найден: бонусы урона собираются родными средствами dnd5e`);
   }
 });

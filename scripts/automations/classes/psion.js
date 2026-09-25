@@ -1,5 +1,6 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
 import { onItemUse, onSpellWorkflowComplete, onWorkflowComplete } from "../../core/hooks.js";
+import { attackWorkflow, damageReductionKey, midiActive, onDamaged } from "../../core/native.js";
 import { chat, featById, isActiveGM, migrated, runAsync } from "../../core/utils.js";
 
 /*
@@ -332,7 +333,8 @@ async function inerrantAim(workflow) {
   const num = new foundry.dice.terms.NumericTerm({ number: rolled.total, options: { flavor: "Inerrant Aim" } });
   await op.evaluate();
   await num.evaluate();
-  await workflow.setAttackRoll(Roll.fromTerms([...workflow.attackRoll.terms, op, num]));
+  // С midi бросок правится на месте, без него итог сообщается в чат: dnd5e не даёт менять готовый бросок
+  if (workflow.setAttackRoll) await workflow.setAttackRoll(Roll.fromTerms([...workflow.attackRoll.terms, op, num]));
   await chat(actor, `<p><b>Inerrant Aim:</b> +${rolled.total} — промах стал <b>попаданием</b> (${total + rolled.total} против КД ${ac}). Кость потрачена.</p>`);
 }
 
@@ -350,8 +352,12 @@ async function backlash(workflow, activity) {
     img: activity.item.img,
     origin: activity.item.uuid,
     duration: { value: 1, units: "rounds" },
-    system: { changes: [{ key: "flags.midi-qol.DR.all", type: "add", value: String(reduction), phase: "initial" }] },
-    flags: { dae: { specialDuration: ["isDamaged"] } },
+    system: { changes: [
+      { key: "flags.midi-qol.DR.all", type: "add", value: String(reduction), phase: "initial" },
+      // Без midi снижение урона считает сам модуль (core/native.js)
+      { key: damageReductionKey, type: "add", value: String(reduction), phase: "initial" },
+    ] },
+    flags: { dae: { specialDuration: ["isDamaged"] }, [MODULE_ID]: { backlashShield: true } },
   }]);
 
   const attacker = workflow.targets?.first?.() ?? null;
@@ -437,14 +443,14 @@ export default {
       return;
     }
 
-    onWorkflowComplete("telekinetic-propel", (workflow) => propel(workflow));
+    onWorkflowComplete("telekinetic-propel", (workflow) => propel(workflow), { saves: true });
     onItemUse("telepathic-connection", (activity) => runAsync("Telepathic Connection", () => telepathy(activity)));
     onItemUse("psionic-restoration", (activity) => runAsync("Psionic Restoration", async () => {
       await EnergyDice.restoreAll(activity.item.actor);
       await chat(activity.item.actor, "<p><b>Psionic Restoration:</b> после минуты медитации все кости энергии восстановлены.</p>");
     }));
     onSpellWorkflowComplete(spellDisciplines);
-    onWorkflowComplete("psionic-disciplines-psionic-backlash", backlash);
+    onWorkflowComplete("psionic-disciplines-psionic-backlash", backlash, { saves: true });
 
     // Нельзя использовать без костей; не больше одной дисциплины за ход
     Hooks.on("dnd5e.preUseActivity", (activity) => {
@@ -461,10 +467,23 @@ export default {
       }
     });
 
-    Hooks.on("midi-qol.preAttackRollComplete", (workflow) => inerrantAim(workflow)
-      .catch(err => console.error(`${LOG} Inerrant Aim:`, err)));
-    Hooks.on("midi-qol.isDamaged", (token, data) => backlashRetaliation(token, data)
-      .catch(err => console.error(`${LOG} Psionic Backlash:`, err)));
+    if (midiActive()) {
+      Hooks.on("midi-qol.preAttackRollComplete", (workflow) => inerrantAim(workflow)
+        .catch(err => console.error(`${LOG} Inerrant Aim:`, err)));
+      Hooks.on("midi-qol.isDamaged", (token, data) => backlashRetaliation(token, data)
+        .catch(err => console.error(`${LOG} Psionic Backlash:`, err)));
+    } else {
+      // Без midi: предложение приходит после броска атаки, а ответ Backlash — по применённому урону
+      Hooks.on("dnd5e.rollAttackV2", (rolls, { subject } = {}) => {
+        if (!subject?.actor?.isOwner) return;
+        inerrantAim(attackWorkflow(subject, rolls)).catch(err => console.error(`${LOG} Inerrant Aim:`, err));
+      });
+      onDamaged(async (actor) => {
+        const shields = actor.effects?.filter(e => e.active && e.getFlag(MODULE_ID, "backlashShield")) ?? [];
+        if (shields.length && actor.isOwner) await actor.deleteEmbeddedDocuments("ActiveEffect", shields.map(e => e.id));
+        await backlashRetaliation(actor.getActiveTokens?.()[0] ?? { actor }, {});
+      });
+    }
 
     // Длинный отдых возвращает бесплатное использование Telepathic Connection
     Hooks.on("dnd5e.restCompleted", (actor, result, config) => {
