@@ -1,6 +1,6 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
 import { onItemUse, onSpellWorkflowComplete, onWorkflowComplete } from "../../core/hooks.js";
-import { attackWorkflow, damageReductionKey, midiActive, onDamaged } from "../../core/native.js";
+import { applyEffects, attackWorkflow, damageReductionKey, midiActive, onDamaged } from "../../core/native.js";
 import { chat, featById, isActiveGM, migrated, runAsync } from "../../core/utils.js";
 
 /*
@@ -162,7 +162,7 @@ export async function applyDamageSafe(target, value, type, label) {
 export async function createEffectsSafe(target, effects) {
   if (!target) return;
   if (target.isOwner) return target.createEmbeddedDocuments("ActiveEffect", effects);
-  await globalThis.MidiQOL?.createEffects?.({ actorUuid: target.uuid, effects, options: {} });
+  await applyEffects(target, effects);
 }
 
 async function pickCount(title, content, max) {

@@ -1,4 +1,5 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
+import { isIncapacitated, nearbyTokens } from "../../core/native.js";
 import { doubleDice, registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { damageTypeLabel, debugNote, isEnabled, turnKey } from "../../core/utils.js";
 
@@ -54,11 +55,11 @@ function hasAdjacentAlly(workflow, targetToken) {
   try {
     const attacker = workflow.token;
     if (!attacker) return false;
-    const nearby = globalThis.MidiQOL?.findNearby(null, targetToken, 5) ?? [];
+    const nearby = globalThis.MidiQOL?.findNearby?.(null, targetToken, 5) ?? nearbyTokens(targetToken, 5);
     return nearby.some(t =>
       t.id !== attacker.id
       && t.document.disposition === attacker.document.disposition
-      && !globalThis.MidiQOL?.checkIncapacitated(t.actor, false));
+      && !(globalThis.MidiQOL?.checkIncapacitated?.(t.actor, false) ?? isIncapacitated(t.actor)));
   } catch (err) {
     console.warn(`${LOG} проверка союзника рядом не удалась:`, err);
     return false;

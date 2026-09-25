@@ -1,7 +1,7 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
 import { chat, damageTypeLabel, debugNote, runAsync, turnKey } from "../../core/utils.js";
 import { onPreAttackRoll, onPreDamageRoll } from "../../core/hooks.js";
-import { applyEffects, attackWorkflow, midiActive } from "../../core/native.js";
+import { applyEffects, attackWorkflow, midiActive, pushTokenAway } from "../../core/native.js";
 
 /*
  * Weapon Mastery (PHB 2024) — свойства мастерства оружия. dnd5e позволяет выбрать свойство в броске атаки
@@ -131,7 +131,8 @@ async function push(workflow, target) {
     rejectClose: false,
   });
   if (!confirmed) return;
-  await globalThis.MidiQOL?.moveTokenAwayFromPoint?.(target, 10, attacker.center, { animate: true });
+  if (globalThis.MidiQOL?.moveTokenAwayFromPoint) await globalThis.MidiQOL.moveTokenAwayFromPoint(target, 10, attacker.center, { animate: true });
+  else await pushTokenAway(target, 10, attacker.center);
 }
 
 async function cleave(workflow, target, item) {

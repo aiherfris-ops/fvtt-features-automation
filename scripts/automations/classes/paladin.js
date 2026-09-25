@@ -1,4 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
+import { removeEffects } from "../../core/native.js";
 import { doubleDice, isMeleeWeaponAttack, registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { onItemUse } from "../../core/hooks.js";
 import { chat, debugNote, featById, isEnabled, migrated, runAsync, turnKey } from "../../core/utils.js";
@@ -86,7 +87,7 @@ async function removePoison(actor) {
     const poisoned = target.effects.filter(e => e.statuses?.has("poisoned"));
     if (!poisoned.length) continue;
     if (target.isOwner) await target.deleteEmbeddedDocuments("ActiveEffect", poisoned.map(e => e.id));
-    else await globalThis.MidiQOL?.removeEffects?.({ actorUuid: target.uuid, effects: poisoned.map(e => e.id) });
+    else await removeEffects(target, poisoned.map(e => e.id));
     await chat(actor, `<p><strong>${actor.name}</strong> снимает отравление с <strong>${token.name}</strong>.</p>`);
   }
 }

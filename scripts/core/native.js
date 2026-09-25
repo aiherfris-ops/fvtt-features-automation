@@ -124,10 +124,16 @@ const EFFECTS_QUERY = `${MODULE_ID}.createEffects`;
 
 /** ГМ создаёт эффекты на актёре по запросу игрока */
 export function installEffectsQuery() {
-  CONFIG.queries[EFFECTS_QUERY] = async ({ actorUuid, effects }) => {
+  CONFIG.queries[EFFECTS_QUERY] = async ({ actorUuid, effects, remove }) => {
     const actor = await fromUuid(actorUuid);
     if (!actor) return false;
-    await actor.createEmbeddedDocuments("ActiveEffect", effects);
+    if (remove?.length) await actor.deleteEmbeddedDocuments("ActiveEffect", remove);
+    if (effects?.length) await actor.createEmbeddedDocuments("ActiveEffect", effects);
+    return true;
+  };
+  CONFIG.queries[`${MODULE_ID}.moveToken`] = async ({ tokenUuid, x, y }) => {
+    const token = await fromUuid(tokenUuid);
+    await token?.update({ x, y }, { animate: true });
     return true;
   };
 }
@@ -145,6 +151,73 @@ export async function applyEffects(actor, effects) {
     return;
   }
   return gm.query(EFFECTS_QUERY, { actorUuid: actor.uuid, effects }, { timeout: 10_000 });
+}
+
+/* Замена служебных функций midi */
+
+const INCAPACITATED = new Set(["incapacitated", "unconscious", "paralyzed", "petrified", "stunned", "dead"]);
+
+/** Существо не может действовать */
+export function isIncapacitated(actor) {
+  if (!actor) return true;
+  if ((actor.system?.attributes?.hp?.value ?? 1) <= 0) return true;
+  return [...(actor.statuses ?? [])].some(s => INCAPACITATED.has(s));
+}
+
+/** Расстояние между токенами в футах по сетке сцены */
+export function distanceBetween(a, b) {
+  if (!a || !b) return Infinity;
+  const path = canvas?.grid?.measurePath?.([a.center ?? a, b.center ?? b]);
+  if (path?.distance !== undefined) return path.distance;
+  const dx = (a.center?.x ?? 0) - (b.center?.x ?? 0);
+  const dy = (a.center?.y ?? 0) - (b.center?.y ?? 0);
+  const size = canvas?.dimensions?.distance ?? 5;
+  return (Math.hypot(dx, dy) / (canvas?.dimensions?.size ?? 100)) * size;
+}
+
+/**
+ * Токены в пределах `distance` футов от токена (замена MidiQOL.findNearby).
+ * @param {number|null} disposition  1 — только союзники цели, -1 — только её противники, null — все
+ */
+export function nearbyTokens(token, distance, { disposition = null, includeIncapacitated = false, includeSelf = false } = {}) {
+  if (!token || !canvas?.tokens) return [];
+  return canvas.tokens.placeables.filter(other => {
+    if (!other.actor || (!includeSelf && other === token)) return false;
+    if (other.document.hidden) return false;
+    if (!includeIncapacitated && isIncapacitated(other.actor)) return false;
+    if (disposition !== null) {
+      const same = other.document.disposition === token.document.disposition;
+      if (disposition > 0 ? !same : same) return false;
+    }
+    return distanceBetween(token, other) <= distance;
+  });
+}
+
+/** Снять эффекты: напрямую, через midi или через ГМа */
+export async function removeEffects(actor, ids) {
+  if (!actor || !ids?.length) return;
+  if (actor.isOwner) return actor.deleteEmbeddedDocuments("ActiveEffect", ids);
+  if (midiActive() && globalThis.MidiQOL?.removeEffects) {
+    return globalThis.MidiQOL.removeEffects({ actorUuid: actor.uuid, effects: ids });
+  }
+  const gm = game.users.activeGM;
+  return gm?.query(EFFECTS_QUERY, { actorUuid: actor.uuid, remove: ids }, { timeout: 10_000 });
+}
+
+/** Оттолкнуть токен от точки на `distance` футов (замена MidiQOL.moveTokenAwayFromPoint) */
+export async function pushTokenAway(token, distance, from) {
+  if (!token || !from) return;
+  const size = canvas?.dimensions?.size ?? 100;
+  const per = canvas?.dimensions?.distance ?? 5;
+  const dx = token.center.x - from.x;
+  const dy = token.center.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const shift = (distance / per) * size;
+  const x = Math.round(token.document.x + (dx / length) * shift);
+  const y = Math.round(token.document.y + (dy / length) * shift);
+  if (token.document.isOwner) return token.document.update({ x, y }, { animate: true });
+  const gm = game.users.activeGM;
+  return gm?.query(`${MODULE_ID}.moveToken`, { tokenUuid: token.document.uuid, x, y }, { timeout: 10_000 });
 }
 
 /* Броски атаки */

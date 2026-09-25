@@ -1,4 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
+import { nearbyTokens } from "../../core/native.js";
 import { registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { onItemUse } from "../../core/hooks.js";
 import { change, chat, damageTypeLabel, featById, isActiveGM, isEnabled, migrated, runAsync, turnKey } from "../../core/utils.js";
@@ -113,7 +114,8 @@ async function radianceTurnEnd(combat) {
   const token = combatant.token?.object;
   if (!token) return;
   const prof = actor.system.attributes.prof ?? 2;
-  const nearby = (globalThis.MidiQOL?.findNearby?.(null, token, 10, { includeIncapacitated: true }) ?? [])
+  const nearby = (globalThis.MidiQOL?.findNearby?.(null, token, 10, { includeIncapacitated: true })
+    ?? nearbyTokens(token, 10, { includeIncapacitated: true }))
     .filter(t => t.actor && t.id !== token.id);
   if (!nearby.length) return;
 

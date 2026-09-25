@@ -1,4 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
+import { removeEffects as removeEffectsFrom } from "../../core/native.js";
 import { featById, isActiveGM, migrated, runAsync } from "../../core/utils.js";
 import { onItemUse, onPreAttackRoll } from "../../core/hooks.js";
 
@@ -19,7 +20,7 @@ const vowEffectsOn = (target, vow) =>
 async function removeEffects(actor, effects) {
   if (!effects.length) return;
   if (actor.isOwner) await actor.deleteEmbeddedDocuments("ActiveEffect", effects.map(e => e.id));
-  else await globalThis.MidiQOL?.removeEffects?.({ actorUuid: actor.uuid, effects: effects.map(e => e.id) });
+  else await removeEffectsFrom(actor, effects.map(e => e.id));
 }
 
 /** «Или пока вы не используете это умение снова»: снимаем клятву со всех прежних целей */
