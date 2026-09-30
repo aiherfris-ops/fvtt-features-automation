@@ -11,9 +11,18 @@
 
 ## Что автоматизировано
 
-**Классы:** изобретатель (Tinker's Magic), паладин (Divine Smite, Lay on Hands), псион (кости псионической
-энергии, дисциплины, Telekinetic Propel, Telepathic Connection), следопыт, плут (Sneak Attack),
-чародей (Innate Sorcery, Font of Magic, метамагия), волшебник (Arcane Recovery и Natural Recovery друида).
+**Классы:** варвар (Ярость с продлением по правилам 2024, Опрометчивая атака, Чувство опасности,
+Быстрое передвижение), бард (кость Вдохновения тратится после броска, Fount of Inspiration),
+воин (Tactical Mind), друид (срок Дикого облика), жрец (Turn Undead по нежити и Sear Undead),
+изобретатель (Tinker's Magic), колдун (Repelling Blast, Grasp of Hadar), монах (кость боевых искусств
+в безоружном ударе, Patient Defense, Stunning Strike, безоружная защита и передвижение),
+паладин (Divine Smite, Lay on Hands), псион (кости псионической энергии, дисциплины, Telekinetic Propel,
+Telepathic Connection), следопыт, плут (Sneak Attack), чародей (Innate Sorcery, Font of Magic, метамагия),
+волшебник (Arcane Recovery и Natural Recovery друида).
+
+Классы 2024 разобраны до 6 уровня: автоматизируется то, чего нет в импорте Plutonium, — например
+эффекту Ярости дописывается преимущество на Силу (в компендиуме dnd5e оно есть, в импорте нет),
+а безоружный удар монаха получает кость монаха вместо «1 + @mod».
 
 **Подклассы:** Alchemist, Vengeance, Metamorph, Arachnoid Stalker, Wild Magic, Bladesinger.
 
@@ -21,7 +30,10 @@
 
 **Черты:** Fighting Style: Dueling, Altered (Crooked Moon), Survivor (Grim Hollow).
 
-**Общие правила:** мастерство оружия (Graze, Vex, Topple и прочие).
+**Общие правила:** мастерство оружия (Graze, Vex, Topple и прочие), условия по снаряжению
+(`core/gear.js`: эффекты вида «пока без доспеха» включаются и выключаются сами), кость к провалившемуся
+броску d20 (`core/roll-boost.js`: кнопка в чате для Вдохновения барда и Tactical Mind — правила разрешают
+тратить такую кость, уже увидев бросок).
 
 ## Как устроено
 

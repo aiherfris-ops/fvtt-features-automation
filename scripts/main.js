@@ -1,5 +1,6 @@
 import { LOG, MODULE_ID } from "./core/constants.js";
 import { installNativeDamageBonus } from "./core/damage-bonus.js";
+import { installGearConditions } from "./core/gear.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
 import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
@@ -31,6 +32,7 @@ Hooks.once("init", () => {
 Hooks.once("setup", () => {
   registry.registerHooks();
   installAttackMemory();
+  installGearConditions();
   if (!midiActive()) {
     installNativeDamageBonus();
     installDamageReduction();
