@@ -1,6 +1,7 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
 import { onWorkflowComplete } from "../../core/hooks.js";
 import { applyEffects, isIncapacitated, onDamaged, removeEffects } from "../../core/native.js";
+import { turnExtender } from "../../items/holy-symbol.mjs";
 import { chat, debugNote, featById, isActiveGM, isEnabled, migrated, runAsync } from "../../core/utils.js";
 
 /*
@@ -11,7 +12,27 @@ import { chat, debugNote, featById, isActiveGM, isEnabled, migrated, runAsync } 
 
 const TURNED = "turned";
 
-const undead = actor => (actor?.system?.details?.type?.value ?? "").toLowerCase() === "undead";
+const creatureType = actor => (actor?.system?.details?.type?.value ?? "").toLowerCase();
+const undead = actor => creatureType(actor) === "undead";
+
+const TYPE_LABELS = { fiend: "исчадия", aberration: "аберрации", undead: "нежить", celestial: "небожители" };
+
+/** Предложить потратить заряд символа, чтобы обращение коснулось и потустороннего */
+async function askSymbol(cleric, symbol, tokens) {
+  const types = [...new Set(tokens.map(token => TYPE_LABELS[creatureType(token.actor)] ?? creatureType(token.actor)))];
+  const uses = symbol.system.uses ?? {};
+  const left = Number(uses.value ?? (Number(uses.max) || 0) - (uses.spent ?? 0));
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: symbol.name },
+    content: `<p>Спасбросок провалили не только мертвецы: ${tokens.map(t => t.name).join(", ")} (${types.join(", ")}).</p>`
+      + `<p>Потратить заряд символа, чтобы обращение коснулось и их? Зарядов осталось: ${left}.</p>`,
+    rejectClose: false,
+  });
+  if (!yes) return false;
+  await symbol.update({ "system.uses.spent": (uses.spent ?? 0) + 1 });
+  console.log(`${LOG} ${symbol.name}: заряд потрачен, обращение расширено на ${types.join(", ")}`);
+  return true;
+}
 
 const turnedEffectData = (activity, cleric) => {
   const source = activity.item.effects.find(e => /turn|обращ/i.test(e.name ?? "")) ?? activity.item.effects.contents[0];
@@ -67,8 +88,10 @@ export default {
   kind: "class",
   label: "Жрец",
   hint: "Turn Undead: эффект «Обращён» вешается только на нежить, провалившую спасброск, и снимается от урона "
-    + "или недееспособности жреца. Sear Undead добавляет излучающий урон. Эффект убран из списка активности, "
-    + "чтобы его не применяли дважды — при выключенной автоматизации верните его вручную.",
+    + "или недееспособности жреца. Sear Undead добавляет излучающий урон. Священный символ с флагом "
+    + "turnAlsoAffects («Символ непреклонного света») за заряд распространяет обращение на исчадий и аберраций. "
+    + "Эффект убран из списка активности, чтобы его не применяли дважды — при выключенной автоматизации "
+    + "верните его вручную.",
   identifiers: ["turn-undead"],
 
   async migrate(actor) {
@@ -93,20 +116,39 @@ export default {
         return;
       }
 
+      // Священный символ против потустороннего расширяет обращение на свои виды существ
+      const symbol = turnExtender(cleric);
+      const extraTypes = new Set(symbol?.getFlag(MODULE_ID, "turnAlsoAffects") ?? []);
+
       const turned = [];
+      const otherworldly = [];
       const resisted = [];
       const wrongType = [];
       for (const token of targets) {
-        if (!undead(token.actor)) { wrongType.push(token.name); continue; }
+        const type = creatureType(token.actor);
+        if (type !== "undead" && !extraTypes.has(type)) { wrongType.push(token.name); continue; }
         if (!failed.includes(token)) { resisted.push(token.name); continue; }
-        turned.push(token);
+        if (type === "undead") turned.push(token);
+        else otherworldly.push(token);
+      }
+
+      let extended = [];
+      if (symbol && otherworldly.length) {
+        if (await askSymbol(cleric, symbol, otherworldly)) extended = otherworldly;
+        else wrongType.push(...otherworldly.map(token => token.name));
+      }
+
+      for (const token of [...turned, ...extended]) {
         await applyEffects(token.actor, [turnedEffectData(activity, cleric)]);
       }
 
       const lines = [];
       if (turned.length) lines.push(`<li>обращены: ${turned.map(t => t.name).join(", ")}</li>`);
+      if (extended.length) {
+        lines.push(`<li>светом символа задеты: ${extended.map(t => t.name).join(", ")}</li>`);
+      }
       if (resisted.length) lines.push(`<li>устояли: ${resisted.join(", ")}</li>`);
-      if (wrongType.length) lines.push(`<li>не нежить, действие не касается: ${wrongType.join(", ")}</li>`);
+      if (wrongType.length) lines.push(`<li>обращение не касается: ${wrongType.join(", ")}</li>`);
       await chat(cleric, `<p><strong>Turn Undead</strong></p><ul>${lines.join("")}</ul>`);
       await searUndead(cleric, turned);
     }, { saves: true });

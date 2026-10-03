@@ -4,6 +4,7 @@ import { installGearConditions } from "./core/gear.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
 import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
+import { createHolySymbol } from "./items/holy-symbol.mjs";
 import automations from "./automations/index.js";
 
 /*
@@ -48,5 +49,7 @@ globalThis.featuresAutomation = Object.assign(globalThis.featuresAutomation ?? {
   // Ручной запуск проверки данных из макроса: featuresAutomation.runMigration()
   // или только для выбранных: featuresAutomation.runMigration({ actors: ["Вайлор Морн"] })
   runMigration: (options) => registry.migrateAll({ force: true, ...options }),
+  // Создать «Символ непреклонного света»: в предметы мира или сразу жрецу
+  createHolySymbol,
 });
 console.log(`${LOG} загружено автоматизаций: ${automations.length}`);
