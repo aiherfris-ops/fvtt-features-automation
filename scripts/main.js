@@ -4,7 +4,7 @@ import { installGearConditions } from "./core/gear.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
 import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
-import { createHolySymbol } from "./items/holy-symbol.mjs";
+import { ensureWorldItems, createHolySymbol } from "./items/index.js";
 import automations from "./automations/index.js";
 
 /*
@@ -24,6 +24,15 @@ Hooks.once("init", () => {
     type: Boolean,
     default: true,
   });
+  game.settings.register(MODULE_ID, "create-items", {
+    name: "Заводить предметы модуля в мире",
+    hint: "При загрузке мира недостающие предметы модуля (например «Символ непреклонного света») "
+      + "появляются в папке «Предметы автоматизации» на вкладке предметов. Каждый — один раз: "
+      + "удалённый предмет заново не создаётся.",
+    scope: "world", config: true, type: Boolean, default: true,
+  });
+  // Что уже заводили: ключи предметов из items/index.js
+  game.settings.register(MODULE_ID, "seeded-items", { scope: "world", config: false, type: Array, default: [] });
   registerMigrationSettings();
   registry.registerSettings();
   installEffectsQuery();
@@ -43,6 +52,15 @@ Hooks.once("setup", () => {
 
 registry.watch();
 
+// Предметы модуля заводятся сами: ГМу не нужно помнить про макрос
+Hooks.once("ready", () => {
+  if (!game.user.isGM) return;
+  let enabled = true;
+  try { enabled = game.settings.get(MODULE_ID, "create-items") !== false; } catch (err) { /* настройки ещё не готовы */ }
+  if (!enabled) return;
+  ensureWorldItems().catch(err => console.error(`${LOG} предметы модуля:`, err));
+});
+
 globalThis.featuresAutomation = Object.assign(globalThis.featuresAutomation ?? {}, {
   registry,
   shouldMigrate,
@@ -51,5 +69,7 @@ globalThis.featuresAutomation = Object.assign(globalThis.featuresAutomation ?? {
   runMigration: (options) => registry.migrateAll({ force: true, ...options }),
   // Создать «Символ непреклонного света»: в предметы мира или сразу жрецу
   createHolySymbol,
+  // Завести недостающие предметы модуля вручную: featuresAutomation.createItems({ force: true })
+  createItems: ensureWorldItems,
 });
 console.log(`${LOG} загружено автоматизаций: ${automations.length}`);

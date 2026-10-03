@@ -80,14 +80,14 @@ const DESCRIPTION = `<p><em>Чудесный предмет (священный 
  * @param {string} [options.name]
  * @returns {Promise<Item|null>}
  */
-export async function createHolySymbol({ actor = null, name = HOLY_SYMBOL_NAME } = {}) {
+export async function createHolySymbol({ actor = null, name = HOLY_SYMBOL_NAME, folder = null, quiet = false } = {}) {
   if (!game.user.isGM) {
     ui.notifications.warn("Создать предмет может только ГМ.");
     return null;
   }
   const existing = actor ? actor.items.getName(name) : game.items.getName(name);
   if (existing) {
-    ui.notifications.info(`«${name}» уже есть.`);
+    if (!quiet) ui.notifications.info(`«${name}» уже есть.`);
     return existing;
   }
 
@@ -99,6 +99,7 @@ export async function createHolySymbol({ actor = null, name = HOLY_SYMBOL_NAME }
 
   const data = {
     name,
+    folder: actor ? undefined : folder,
     type: "equipment",
     img: "icons/magic/holy/symbol-sun-gold.webp",
     system: {
@@ -148,7 +149,7 @@ export async function createHolySymbol({ actor = null, name = HOLY_SYMBOL_NAME }
   if (missing.length) {
     console.warn(`${LOG} символ: не нашлись заклинания (${missing.join(", ")}) — остались заметками`);
     ui.notifications.warn(`«${name}» создан, но заклинания ${missing.join(", ")} не найдены — впишите вручную.`);
-  } else {
+  } else if (!quiet) {
     ui.notifications.info(`«${name}» создан${actor ? ` у ${actor.name}` : " в предметах мира"}.`);
   }
   console.log(`${LOG} создан предмет «${name}»`, uuids);
