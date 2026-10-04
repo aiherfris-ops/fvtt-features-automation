@@ -3,15 +3,20 @@
  *
  * Чинит то, на что ругается консоль при загрузке:
  *   1. Изменения эффектов с негодным `type` (в поле типа лежит число вроде "20" или "40" —
- *      последствие старой конвертации). Foundry такие эффекты не создаёт вовсе.
+ *      последствие старой конвертации Плютониума). Foundry такие эффекты не создаёт вовсе.
  *   2. Классовые предметы на NPC: dnd5e 6 при подготовке NPC читает у них шкалы класса и падает
- *      («Cannot read properties of undefined (reading 'byType')», «parseUuid(...) is null»).
- *   3. Поведения регионов от выключенного модуля (например multi-token-edit.linkToken).
+ *      («Cannot read properties of undefined (reading byType)», «parseUuid(...) is null»).
+ *   3. Поведения регионов от выключенных модулей (например multi-token-edit.linkToken).
+ *
+ * Важно: негодные документы Foundry выбрасывает при загрузке, поэтому в коллекциях
+ * (item.effects, region.behaviors) их нет — ищем в исходных данных документа (`_source`),
+ * где они лежат ровно как в базе, и правим их обновлением владельца.
  *
  * Запуск (макрос типа «Скрипт», от ГМа):
  *   const fix = await import("/modules/features-automation/tools/fix-world-data.mjs");
  *   await fix.run();                 // только показать, что не так
- *   await fix.run({ apply: true });  // починить изменения эффектов и убрать осиротевшие поведения
+ *   await fix.run({ apply: true });  // починить изменения эффектов
+ *   await fix.run({ apply: true, removeBehaviors: true });   // ещё и убрать осиротевшие поведения
  *   await fix.run({ apply: true, removeClassItems: true });  // ещё и снять классы с NPC
  */
 
@@ -32,27 +37,36 @@ const isBroken = change => !VALID_TYPES.has(change?.type);
 
 /* Сбор проблем */
 
-const effectsOf = (doc) => [...(doc.effects ?? [])];
-
-function collectBrokenEffects() {
-  const found = [];
-  const look = (effect, where) => {
-    const changes = effect.system?.changes ?? [];
-    const bad = changes.filter(isBroken);
-    if (bad.length) found.push({ effect, where, bad });
-  };
-  for (const item of game.items) for (const effect of effectsOf(item)) look(effect, `предмет «${item.name}»`);
+/*
+ * Всё, у чего бывают эффекты, вместе с документом, через который их чинить.
+ * Берём именно `_source`: в коллекции негодного эффекта уже нет.
+ */
+function effectHolders() {
+  const out = [];
+  const add = (doc, where) => { if (doc) out.push({ doc, where, sources: doc._source?.effects ?? [] }); };
+  for (const item of game.items) add(item, `предмет мира «${item.name}»`);
   for (const actor of game.actors) {
-    for (const effect of effectsOf(actor)) look(effect, `актёр «${actor.name}»`);
-    for (const item of actor.items) for (const effect of effectsOf(item)) look(effect, `${actor.name} → «${item.name}»`);
+    add(actor, `актёр «${actor.name}»`);
+    for (const item of actor.items) add(item, `${actor.name} → «${item.name}»`);
   }
   for (const scene of game.scenes) {
     for (const token of scene.tokens) {
-      const actor = token.actor;
-      if (!actor || token.actorLink) continue;
-      for (const item of actor.items) for (const effect of effectsOf(item)) {
-        look(effect, `${scene.name} → токен «${token.name}» → «${item.name}»`);
-      }
+      if (token.actorLink || !token.actor) continue;
+      add(token.actor, `${scene.name} → токен «${token.name}»`);
+      for (const item of token.actor.items) add(item, `${scene.name} → токен «${token.name}» → «${item.name}»`);
+    }
+  }
+  return out;
+}
+
+function collectBrokenEffects() {
+  const found = [];
+  for (const holder of effectHolders()) {
+    for (const source of holder.sources) {
+      const changes = source?.system?.changes ?? [];
+      if (!changes.some(isBroken)) continue;
+      const live = holder.doc.effects?.get?.(source._id) ?? null;
+      found.push({ holder, source, loaded: !!live });
     }
   }
   return found;
@@ -79,11 +93,11 @@ function collectOrphanBehaviors() {
   const known = new Set(Object.keys(CONFIG.RegionBehavior?.dataModels ?? {}));
   const found = [];
   for (const scene of game.scenes) {
-    for (const region of scene.regions ?? []) {
+    for (const region of scene._source?.regions ?? []) {
       for (const behavior of region.behaviors ?? []) {
-        const type = behavior.type ?? behavior._source?.type;
-        if (known.has(type)) continue;
-        found.push({ scene, region, behavior, type });
+        if (known.has(behavior.type)) continue;
+        const mod = game.modules?.get?.(String(behavior.type).split(".")[0]) ?? null;
+        found.push({ scene, region, behavior, type: behavior.type, mod });
       }
     }
   }
@@ -94,17 +108,34 @@ function collectOrphanBehaviors() {
 
 async function fixEffects(found, { apply }) {
   const lines = [];
-  for (const { effect, where, bad } of found) {
-    const changes = foundry.utils.deepClone(effect.system.changes ?? []);
-    const fixes = [];
-    for (const change of changes) {
-      if (!isBroken(change)) continue;
-      const type = guessType(change);
-      fixes.push(`${change.key}: ${JSON.stringify(change.type)} → ${type}`);
-      change.type = type;
+  const byHolder = new Map();
+  for (const entry of found) {
+    if (!byHolder.has(entry.holder)) byHolder.set(entry.holder, []);
+    byHolder.get(entry.holder).push(entry);
+  }
+
+  for (const [holder, entries] of byHolder) {
+    const patches = [];
+    for (const { source, loaded } of entries) {
+      const changes = foundry.utils.deepClone(source.system.changes ?? []);
+      const fixes = [];
+      for (const change of changes) {
+        if (!isBroken(change)) continue;
+        const type = guessType(change);
+        fixes.push(`${change.key}: ${JSON.stringify(change.type)} → ${type}`);
+        change.type = type;
+      }
+      const note = loaded ? "" : " (этот эффект из-за ошибки вообще не загрузился)";
+      lines.push(`${holder.where}, эффект «${source.name}»: ${fixes.join("; ")}${note}`);
+      patches.push({ _id: source._id, system: { changes } });
     }
-    lines.push(`${where}, эффект «${effect.name}»: ${fixes.join("; ")}`);
-    if (apply) await effect.update({ "system.changes": changes });
+    if (!apply) continue;
+    try {
+      await holder.doc.update({ effects: patches });
+    } catch (err) {
+      console.error("[fix-world-data] не вышло обновить", holder.where, err);
+      lines.push(`${holder.where}: ПОЧИНИТЬ НЕ УДАЛОСЬ — ${err.message}`);
+    }
   }
   return lines;
 }
@@ -118,11 +149,15 @@ async function fixNpcs(found, { apply, removeClassItems }) {
   return lines;
 }
 
-async function fixBehaviors(found, { apply }) {
+async function fixBehaviors(found, { apply, removeBehaviors }) {
   const lines = [];
-  for (const { scene, region, behavior, type } of found) {
-    lines.push(`${scene.name} → регион «${region.name ?? region.id}»: поведение ${type}`);
-    if (apply) await region.deleteEmbeddedDocuments("RegionBehavior", [behavior.id]);
+  for (const { scene, region, behavior, type, mod } of found) {
+    const hint = mod ? ` — модуль «${mod.title ?? mod.id}» установлен, но выключен: проще включить его` : "";
+    lines.push(`${scene.name} → регион «${region.name || region._id}»: поведение ${type}${hint}`);
+    if (!apply || !removeBehaviors) continue;
+    const live = scene.regions.get(region._id);
+    if (live) await live.deleteEmbeddedDocuments("RegionBehavior", [behavior._id]);
+    else lines.push(`${scene.name}: регион ${region._id} не загрузился, поведение не убрано`);
   }
   return lines;
 }
@@ -132,8 +167,9 @@ async function fixBehaviors(found, { apply }) {
  * @param {object} [options]
  * @param {boolean} [options.apply]             Чинить, а не только показывать
  * @param {boolean} [options.removeClassItems]  Снимать классовые предметы с NPC (необратимо)
+ * @param {boolean} [options.removeBehaviors]   Убирать поведения регионов неизвестного типа (необратимо)
  */
-export async function run({ apply = false, removeClassItems = false } = {}) {
+export async function run({ apply = false, removeClassItems = false, removeBehaviors = false } = {}) {
   if (!game.user.isGM) {
     ui.notifications.warn("Чинить данные мира может только ГМ.");
     return null;
@@ -146,7 +182,7 @@ export async function run({ apply = false, removeClassItems = false } = {}) {
   const report = {
     effects: await fixEffects(effects, { apply }),
     npcs: await fixNpcs(npcs, { apply, removeClassItems }),
-    behaviors: await fixBehaviors(behaviors, { apply }),
+    behaviors: await fixBehaviors(behaviors, { apply, removeBehaviors }),
   };
 
   const total = report.effects.length + report.npcs.length + report.behaviors.length;
@@ -159,8 +195,8 @@ export async function run({ apply = false, removeClassItems = false } = {}) {
     + section("Изменения эффектов с негодным типом", report.effects, apply ? ", исправлено" : ", будет исправлено")
     + section("Классовые предметы на NPC", report.npcs,
       removeClassItems && apply ? ", сняты" : " — снимаются только с removeClassItems: true")
-    + section("Поведения регионов от выключенных модулей", report.behaviors,
-      apply ? ", убраны" : ", будут убраны")
+    + section("Поведения регионов неизвестного типа", report.behaviors,
+      removeBehaviors && apply ? ", убраны" : " — убираются только с removeBehaviors: true")
     + (apply ? "<p>Перезагрузите мир, чтобы Foundry перечитал документы.</p>" : "");
 
   await ChatMessage.create({ whisper: [game.user.id], content });
