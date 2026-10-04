@@ -26,8 +26,15 @@ export const CONDITIONS = {
   noArmorOrShield: actor => !wearsArmor(actor) && !wieldsShield(actor),
 };
 
-/** Все эффекты актёра, включая передаваемые с предметов (их выключать нужно на самом предмете) */
-const allEffects = actor => [...(actor.effects ?? []), ...(actor.items?.flatMap(item => [...item.effects]) ?? [])];
+/*
+ * Все эффекты актёра, включая передаваемые с предметов (их выключать нужно на самом предмете).
+ * actor.items и actor.effects — коллекции Foundry, а не массивы: сначала разворачиваем.
+ */
+const allEffects = (actor) => {
+  const own = [...(actor.effects ?? [])];
+  const fromItems = [...(actor.items ?? [])].flatMap(item => [...(item.effects ?? [])]);
+  return [...own, ...fromItems];
+};
 
 /** Привести помеченные эффекты в соответствие со снаряжением. Возвращает число изменений. */
 export async function refreshGearEffects(actor) {
