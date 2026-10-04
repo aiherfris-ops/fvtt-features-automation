@@ -36,8 +36,8 @@ Hooks.once("init", () => {
   game.settings.register(MODULE_ID, "seeded-items", { scope: "world", config: false, type: Array, default: [] });
   game.settings.register(MODULE_ID, "migration-report", {
     name: "Сообщать о проверке данных",
-    hint: "После проверки данных (при загрузке мира и по команде) показывать ГМу итог: сколько персонажей "
-      + "поправлено. «Только при изменениях» — молчит, когда править нечего.",
+    hint: "После проверки данных (при загрузке мира и по команде) показывать ГМу итог: у скольких персонажей "
+      + "прогнаны автоматизации. «Только при изменениях» — молчит, когда прогонять нечего.",
     scope: "world", config: true, type: String, default: "changes",
     choices: { off: "Молча", changes: "Только при изменениях", always: "Всегда" },
   });

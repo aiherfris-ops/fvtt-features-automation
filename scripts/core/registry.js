@@ -118,7 +118,7 @@ export class AutomationRegistry {
       names.push(actor.name);
     }
     const ms = Math.round(performance.now() - started);
-    console.log(`${LOG} проверка данных: ${actors.length} из ${game.actors.size} актёров, изменено ${migrated}, ${ms} мс`);
+    console.log(`${LOG} проверка данных: ${actors.length} из ${game.actors.size} актёров, прогнано у ${migrated}, ${ms} мс`);
     this.#announce({ checked: actors.length, migrated, names, ms, manual: !!force || !!only });
     return migrated;
   }
@@ -131,9 +131,11 @@ export class AutomationRegistry {
     if (mode === "changes" && !migrated && !manual) return;
 
     const who = names.length ? `: ${names.slice(0, 6).join(", ")}${names.length > 6 ? ` и ещё ${names.length - 6}` : ""}` : "";
+    // Считаем тех, у кого автоматизации прогнались. Они идемпотентны, поэтому «прогнано» —
+    // не то же самое, что «изменено»: при повторном запуске данные чаще всего уже в порядке.
     const message = migrated
-      ? `Проверка данных прошла: поправлено персонажей ${migrated} из ${checked}${who}.`
-      : `Проверка данных прошла: ${checked} персонажей, править было нечего.`;
+      ? `Проверка данных прошла: автоматизации прогнаны у ${migrated} из ${checked} персонажей${who}.`
+      : `Проверка данных прошла: ${checked} персонажей, прогонять было нечего.`;
     ui.notifications.info(`${message}`, { permanent: false });
     if (mode === "always" || migrated) {
       ChatMessage.create({

@@ -65,8 +65,17 @@ function collectBrokenEffects() {
     for (const source of holder.sources) {
       const changes = source?.system?.changes ?? [];
       if (!changes.some(isBroken)) continue;
+
+      const fixed = foundry.utils.deepClone(changes);
+      const fixes = [];
+      for (const change of fixed) {
+        if (!isBroken(change)) continue;
+        const type = guessType(change);
+        fixes.push(`${change.key}: ${JSON.stringify(change.type)} → ${type}`);
+        change.type = type;
+      }
       const live = holder.doc.effects?.get?.(source._id) ?? null;
-      found.push({ holder, source, loaded: !!live });
+      found.push({ holder, source, fixed, fixes, loaded: !!live });
     }
   }
   return found;
@@ -106,6 +115,27 @@ function collectOrphanBehaviors() {
 
 /* Починка */
 
+/*
+ * Выброшенный документ нельзя поправить обновлением владельца: ни клиент, ни сервер не находят
+ * его в коллекции, и правка молча пропадает. Поэтому такой эффект удаляем и заводим заново
+ * с тем же id и уже исправленными данными. Загруженные эффекты правятся обычным update.
+ */
+async function repairHolder(holder, entries) {
+  for (const { source, fixed } of entries.filter(e => e.loaded)) {
+    await holder.doc.effects.get(source._id).update({ "system.changes": fixed });
+  }
+
+  const dropped = entries.filter(e => !e.loaded);
+  if (!dropped.length) return;
+  await holder.doc.deleteEmbeddedDocuments("ActiveEffect", dropped.map(e => e.source._id));
+  const data = dropped.map(({ source, fixed }) => {
+    const copy = foundry.utils.deepClone(source);
+    copy.system = { ...(copy.system ?? {}), changes: fixed };
+    return copy;
+  });
+  await holder.doc.createEmbeddedDocuments("ActiveEffect", data, { keepId: true });
+}
+
 async function fixEffects(found, { apply }) {
   const lines = [];
   const byHolder = new Map();
@@ -115,25 +145,15 @@ async function fixEffects(found, { apply }) {
   }
 
   for (const [holder, entries] of byHolder) {
-    const patches = [];
-    for (const { source, loaded } of entries) {
-      const changes = foundry.utils.deepClone(source.system.changes ?? []);
-      const fixes = [];
-      for (const change of changes) {
-        if (!isBroken(change)) continue;
-        const type = guessType(change);
-        fixes.push(`${change.key}: ${JSON.stringify(change.type)} → ${type}`);
-        change.type = type;
-      }
+    for (const { source, fixes, loaded } of entries) {
       const note = loaded ? "" : " (этот эффект из-за ошибки вообще не загрузился)";
       lines.push(`${holder.where}, эффект «${source.name}»: ${fixes.join("; ")}${note}`);
-      patches.push({ _id: source._id, system: { changes } });
     }
     if (!apply) continue;
     try {
-      await holder.doc.update({ effects: patches });
+      await repairHolder(holder, entries);
     } catch (err) {
-      console.error("[fix-world-data] не вышло обновить", holder.where, err);
+      console.error("[fix-world-data] не вышло починить", holder.where, err);
       lines.push(`${holder.where}: ПОЧИНИТЬ НЕ УДАЛОСЬ — ${err.message}`);
     }
   }
@@ -185,8 +205,12 @@ export async function run({ apply = false, removeClassItems = false, removeBehav
     behaviors: await fixBehaviors(behaviors, { apply, removeBehaviors }),
   };
 
+  // Не верим себе на слово: после починки перечитываем данные и смотрим, что осталось
+  report.left = apply ? collectBrokenEffects().map(e => `${e.holder.where}, эффект «${e.source.name}»`) : [];
+
   const total = report.effects.length + report.npcs.length + report.behaviors.length;
-  const title = apply ? "Данные мира починены" : "Проверка данных мира (ничего не меняли)";
+  const title = report.left.length ? "Починить удалось не всё"
+    : apply ? "Данные мира починены" : "Проверка данных мира (ничего не меняли)";
   const section = (name, lines, note = "") => (lines.length
     ? `<p><strong>${name}</strong> — ${lines.length}${note}</p><ul>${lines.map(l => `<li>${l}</li>`).join("")}</ul>`
     : `<p><strong>${name}</strong> — чисто</p>`);
@@ -197,11 +221,16 @@ export async function run({ apply = false, removeClassItems = false, removeBehav
       removeClassItems && apply ? ", сняты" : " — снимаются только с removeClassItems: true")
     + section("Поведения регионов неизвестного типа", report.behaviors,
       removeBehaviors && apply ? ", убраны" : " — убираются только с removeBehaviors: true")
+    + (report.left.length
+      ? `<p><strong>Осталось непочиненным — ${report.left.length}</strong>: правка не прижилась.`
+        + `</p><ul>${report.left.map(l => `<li>${l}</li>`).join("")}</ul>`
+      : "")
     + (apply ? "<p>Перезагрузите мир, чтобы Foundry перечитал документы.</p>" : "");
 
   await ChatMessage.create({ whisper: [game.user.id], content });
   console.log("[fix-world-data]", report);
-  ui.notifications.info(total
+  if (report.left.length) ui.notifications.warn(`${title}: осталось ${report.left.length}. Подробности в чате.`);
+  else ui.notifications.info(total
     ? `${title}: записей ${total}. Подробности в чате.`
     : "Данные мира в порядке — чинить нечего.");
   return report;
