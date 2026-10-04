@@ -81,6 +81,42 @@ function collectBrokenEffects() {
   return found;
 }
 
+/*
+ * Ссылка на источник, которую Foundry не может разобрать. dnd5e 6 на подготовке предмета
+ * складывает его в указатель источников (`actor.sourcedItems`), а там ссылка идёт через
+ * parseUuid. Если она негодна — подготовка предмета падает, у него не появляется
+ * `advancement`, и следом рушится весь актёр: «Cannot read properties of undefined
+ * (reading byType)». В мире такое встретилось у предметов в токенах сцен: при старом
+ * переносе от ссылки остался только хвост вида «.EyvewCcPmF2dM2OL».
+ */
+const SOURCE_FIELDS = ["_stats.compendiumSource", "flags.dnd5e.sourceId"];
+
+/** Разбирается ли ссылка так же, как её разбирает Foundry */
+function parsesUuid(uuid) {
+  try { return !!foundry.utils.parseUuid(uuid); }
+  catch (err) { return false; }
+}
+
+function collectBrokenSources() {
+  const found = [];
+  const look = (item, where) => {
+    for (const field of SOURCE_FIELDS) {
+      const value = foundry.utils.getProperty(item._source ?? {}, field);
+      if (!value || parsesUuid(value)) continue;
+      found.push({ item, where, field, value });
+    }
+  };
+  for (const item of game.items) look(item, `предмет мира «${item.name}»`);
+  for (const actor of game.actors) for (const item of actor.items) look(item, `${actor.name} → «${item.name}»`);
+  for (const scene of game.scenes) {
+    for (const token of scene.tokens) {
+      if (token.actorLink || !token.actor) continue;
+      for (const item of token.actor.items) look(item, `${scene.name} → токен «${token.name}» → «${item.name}»`);
+    }
+  }
+  return found;
+}
+
 function collectClassItemsOnNpcs() {
   const found = [];
   const check = (actor, where) => {
@@ -160,6 +196,36 @@ async function fixEffects(found, { apply }) {
   return lines;
 }
 
+/*
+ * Негодную ссылку убираем, а не правим: указатель источников нужен только для поиска
+ * «откуда взялся предмет», и ссылка предмета на самого себя там ничего не значит.
+ */
+async function fixSources(found, { apply }) {
+  const lines = [];
+  const byItem = new Map();
+  for (const entry of found) {
+    if (!byItem.has(entry.item)) byItem.set(entry.item, []);
+    byItem.get(entry.item).push(entry);
+  }
+
+  for (const [item, entries] of byItem) {
+    lines.push(`${entries[0].where}: ${entries.map(e => `${e.field} = ${JSON.stringify(e.value)}`).join("; ")} → убрано`);
+    if (!apply) continue;
+    const data = {};
+    for (const { field } of entries) {
+      if (field === "flags.dnd5e.sourceId") data["flags.dnd5e.-=sourceId"] = null;
+      else data[field] = null;
+    }
+    try {
+      await item.update(data);
+    } catch (err) {
+      console.error("[fix-world-data] не вышло убрать ссылку", entries[0].where, err);
+      lines.push(`${entries[0].where}: УБРАТЬ НЕ УДАЛОСЬ — ${err.message}`);
+    }
+  }
+  return lines;
+}
+
 async function fixNpcs(found, { apply, removeClassItems }) {
   const lines = [];
   for (const { actor, where, items } of found) {
@@ -196,19 +262,24 @@ export async function run({ apply = false, removeClassItems = false, removeBehav
   }
 
   const effects = collectBrokenEffects();
+  const sources = collectBrokenSources();
   const npcs = collectClassItemsOnNpcs();
   const behaviors = collectOrphanBehaviors();
 
   const report = {
     effects: await fixEffects(effects, { apply }),
+    sources: await fixSources(sources, { apply }),
     npcs: await fixNpcs(npcs, { apply, removeClassItems }),
     behaviors: await fixBehaviors(behaviors, { apply, removeBehaviors }),
   };
 
   // Не верим себе на слово: после починки перечитываем данные и смотрим, что осталось
-  report.left = apply ? collectBrokenEffects().map(e => `${e.holder.where}, эффект «${e.source.name}»`) : [];
+  report.left = apply ? [
+    ...collectBrokenEffects().map(e => `${e.holder.where}, эффект «${e.source.name}»`),
+    ...collectBrokenSources().map(s => `${s.where}, ссылка ${s.field}`),
+  ] : [];
 
-  const total = report.effects.length + report.npcs.length + report.behaviors.length;
+  const total = report.effects.length + report.sources.length + report.npcs.length + report.behaviors.length;
   const title = report.left.length ? "Починить удалось не всё"
     : apply ? "Данные мира починены" : "Проверка данных мира (ничего не меняли)";
   const section = (name, lines, note = "") => (lines.length
@@ -217,6 +288,8 @@ export async function run({ apply = false, removeClassItems = false, removeBehav
 
   const content = `<p><strong>${title}</strong></p>`
     + section("Изменения эффектов с негодным типом", report.effects, apply ? ", исправлено" : ", будет исправлено")
+    + section("Ссылки на источник, которые Foundry не разбирает", report.sources,
+      apply ? "" : ", будут убраны")
     + section("Классовые предметы на NPC", report.npcs,
       removeClassItems && apply ? ", сняты" : " — снимаются только с removeClassItems: true")
     + section("Поведения регионов неизвестного типа", report.behaviors,

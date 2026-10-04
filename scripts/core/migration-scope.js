@@ -56,7 +56,13 @@ export function shouldMigrate(actor, scope = migrationScope()) {
 
 const escape = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-class MigrationPlayersMenu {
+/*
+ * Foundry 14 принимает в registerMenu только FormApplication или ApplicationV2, поэтому
+ * наследуемся от ApplicationV2. Своего окна у меню нет — настройка показывается диалогом.
+ */
+class MigrationPlayersMenu extends foundry.applications.api.ApplicationV2 {
+  static DEFAULT_OPTIONS = { id: `${MODULE_ID}-migration-players` };
+
   async render() {
     const lists = savedLists();
     const characters = game.actors.contents.filter(a => a.type === "character")
@@ -95,11 +101,15 @@ class MigrationPlayersMenu {
       },
       rejectClose: false,
     });
-    if (!picked) return;
+    if (!picked) return this;
     await game.settings.set(MODULE_ID, "migration-players", picked);
     const total = new Set(Object.values(picked).flat()).size;
     ui.notifications.info(`Проверка данных: сохранено, персонажей в списках — ${total}.`);
+    return this;
   }
+
+  /** Закрывать нечего: окно не открывалось */
+  async close() { return this; }
 }
 
 export function registerMigrationSettings() {
