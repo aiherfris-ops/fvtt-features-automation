@@ -2,7 +2,7 @@
   "id": "features-automation",
   "title": "Features Automation",
   "description": "Автоматизация классов, подклассов, видов и черт dnd5e. Каждая автоматизация — отдельный файл в scripts/automations/ (classes, subclasses, species, feats) и отдельный переключатель в настройках модуля. Сейчас: паладин (Divine Smite, Lay on Hands), рейнджер (Favored Enemy), плут (Sneak Attack), волшебник (Arcane Recovery), чародей (Font of Magic, Metamagic, Innate Sorcery), Oath of Vengeance, Arachnoid Stalker, Bladesinger, Wild Magic, Aasimar, Tortle, Fighting Style: Dueling, Изобретатель (Tinker's Magic), Alchemist (Experimental Elixir), Gnome (Gnomish Cunning), Weapon Mastery (Cleave, Graze, Push, Sap, Slow, Topple, Vex). Ядро: общий диспетчер хуков, единое окно бонусов урона Midi, кэш настроек, миграции по версии. Проверка данных — по спискам персонажей для каждого игрока (по умолчанию назначенный персонаж игроков в сети). Псионик (UA 2025) и Metamorph перенесены из модуля psion-automation.",
-  "version": "3.5.1",
+  "version": "3.6.0",
   "authors": [
     {
       "name": "uniks"

@@ -5,6 +5,7 @@ import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope
 import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
 import { report } from "./core/report.js";
+import { dismissReplicated, replicatedItems } from "./automations/classes/artificer.js";
 import { ensureWorldItems, createHolySymbol } from "./items/index.js";
 import automations from "./automations/index.js";
 
@@ -81,5 +82,8 @@ globalThis.featuresAutomation = Object.assign(globalThis.featuresAutomation ?? {
   createHolySymbol,
   // Завести недостающие предметы модуля вручную: featuresAutomation.createItems({ force: true })
   createItems: ensureWorldItems,
+  // Развоплотить всё, созданное изобретателем по чертежам
+  dismissReplicated,
+  replicatedItems,
 });
 console.log(`${LOG} загружено автоматизаций: ${automations.length}`);
