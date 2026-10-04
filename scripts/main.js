@@ -4,6 +4,7 @@ import { installGearConditions } from "./core/gear.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
 import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
 import { AutomationRegistry } from "./core/registry.js";
+import { report } from "./core/report.js";
 import { ensureWorldItems, createHolySymbol } from "./items/index.js";
 import automations from "./automations/index.js";
 
@@ -33,6 +34,13 @@ Hooks.once("init", () => {
   });
   // Что уже заводили: ключи предметов из items/index.js
   game.settings.register(MODULE_ID, "seeded-items", { scope: "world", config: false, type: Array, default: [] });
+  game.settings.register(MODULE_ID, "migration-report", {
+    name: "Сообщать о проверке данных",
+    hint: "После проверки данных (при загрузке мира и по команде) показывать ГМу итог: сколько персонажей "
+      + "поправлено. «Только при изменениях» — молчит, когда править нечего.",
+    scope: "world", config: true, type: String, default: "changes",
+    choices: { off: "Молча", changes: "Только при изменениях", always: "Всегда" },
+  });
   registerMigrationSettings();
   registry.registerSettings();
   installEffectsQuery();
@@ -67,6 +75,8 @@ globalThis.featuresAutomation = Object.assign(globalThis.featuresAutomation ?? {
   // Ручной запуск проверки данных из макроса: featuresAutomation.runMigration()
   // или только для выбранных: featuresAutomation.runMigration({ actors: ["Вайлор Морн"] })
   runMigration: (options) => registry.migrateAll({ force: true, ...options }),
+  // Подробный отчёт: кому что применилось, у всех ли подключён макрос бонусов урона
+  report,
   // Создать «Символ непреклонного света»: в предметы мира или сразу жрецу
   createHolySymbol,
   // Завести недостающие предметы модуля вручную: featuresAutomation.createItems({ force: true })

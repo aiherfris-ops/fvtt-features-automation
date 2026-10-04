@@ -111,10 +111,37 @@ export class AutomationRegistry {
     const actors = only ? resolveActors(only)
       : game.actors.filter(a => shouldMigrate(a, scope === "manual" ? "players" : scope));
     let migrated = 0;
-    for (const actor of actors) if (await this.migrateActor(actor, { force })) migrated++;
-    console.log(`${LOG} проверка данных: ${actors.length} из ${game.actors.size} актёров, изменено ${migrated}, `
-      + `${Math.round(performance.now() - started)} мс`);
+    const names = [];
+    for (const actor of actors) {
+      if (!await this.migrateActor(actor, { force })) continue;
+      migrated++;
+      names.push(actor.name);
+    }
+    const ms = Math.round(performance.now() - started);
+    console.log(`${LOG} проверка данных: ${actors.length} из ${game.actors.size} актёров, изменено ${migrated}, ${ms} мс`);
+    this.#announce({ checked: actors.length, migrated, names, ms, manual: !!force || !!only });
     return migrated;
+  }
+
+  /** Сказать ГМу, чем кончилась проверка данных. Громкость — настройка «Сообщать о проверке данных» */
+  #announce({ checked, migrated, names, ms, manual }) {
+    let mode = "changes";
+    try { mode = game.settings.get(MODULE_ID, "migration-report") ?? "changes"; } catch (err) { /* ещё рано */ }
+    if (mode === "off") return;
+    if (mode === "changes" && !migrated && !manual) return;
+
+    const who = names.length ? `: ${names.slice(0, 6).join(", ")}${names.length > 6 ? ` и ещё ${names.length - 6}` : ""}` : "";
+    const message = migrated
+      ? `Проверка данных прошла: поправлено персонажей ${migrated} из ${checked}${who}.`
+      : `Проверка данных прошла: ${checked} персонажей, править было нечего.`;
+    ui.notifications.info(`${message}`, { permanent: false });
+    if (mode === "always" || migrated) {
+      ChatMessage.create({
+        whisper: [game.user.id],
+        content: `<p><strong>Features Automation</strong></p><p>${message}</p>`
+          + `<p style="opacity:.7;font-size:11px">${ms} мс. Подробный отчёт: <code>featuresAutomation.report()</code></p>`,
+      }).catch(() => {});
+    }
   }
 
   /** Активный ГМ правит данные при загрузке и новых предметов по мере появления */
