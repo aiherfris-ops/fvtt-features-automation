@@ -37,7 +37,9 @@ const IDS = {
   makeItem: "faArtPlanMake000",
 };
 
-const normalize = s => s.toLowerCase().replace(/[^a-z]/g, "");
+const normalize = s => String(s ?? "").toLowerCase().replace(/[^a-zа-яё]/g, "");
+// Имена записи индекса: переведённое Babele и исходное английское
+const entryNames = e => [e.name, e.originalName, e.flags?.babele?.originalName].filter(Boolean).map(normalize);
 
 /** Предмет из компендиума по названию (учитывая варианты вида «Bottle, Glass» и «Spikes, Iron») */
 async function findItemData(name) {
@@ -47,7 +49,7 @@ async function findItemData(name) {
     const pack = game.packs.get(packId);
     if (!pack) continue;
     const index = await pack.getIndex();
-    const entry = index.find(e => [wanted, reversed].includes(normalize(e.name)));
+    const entry = index.find(e => entryNames(e).some(n => n === wanted || n === reversed));
     if (entry) return (await pack.getDocument(entry._id))?.toObject();
   }
   return null;

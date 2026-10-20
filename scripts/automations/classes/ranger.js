@@ -9,6 +9,8 @@ export default {
 
   register() {
     registerFreeCastLink({
+      featureIds: ["favored-enemy"],
+      spellIds: ["hunters-mark", "metka-ohotnika"],
       feature: /favored\s+(enemy|foe)|избранн\S*\s+враг/i,
       spell: /hunter'?s?\s+mark|метк\S*\s+охотник\S*/i,
     });

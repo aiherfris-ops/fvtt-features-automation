@@ -117,7 +117,8 @@ export default {
 
   register() {
     onItemUse("lay-on-hands", (activity) => {
-      if (!/poison|яд|отрав/i.test(activity.name ?? "")) return;
+      // dnd5eactivity001 — Remove Poison у предмета из книги; у самодельных — по имени
+      if (activity.id !== "dnd5eactivity001" && !/poison|яд|отрав/i.test(activity.name ?? "")) return;
       runAsync("Lay on Hands", () => removePoison(activity.item.actor));
     });
   },

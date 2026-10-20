@@ -51,7 +51,10 @@ export const getRemainingUses = (feature) => {
 
 export const chat = (actor, content) => ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor }), content });
 
-/** Запустить асинхронную работу из синхронного хука, не теряя ошибки */
+/** Запустить асинхронную работу из синхронного хука, не теряя ошибки: в консоль и на экран */
 export const runAsync = (label, task) => {
-  Promise.resolve().then(task).catch(err => console.error(`${LOG} ${label}:`, err));
+  Promise.resolve().then(task).catch(err => {
+    console.error(`${LOG} ${label}:`, err);
+    ui.notifications?.error(`${label}: ${err?.message ?? err}`);
+  });
 };

@@ -3,8 +3,8 @@ import { debugNote, getRemainingUses } from "./utils.js";
 
 /**
  * Связки «умение с зарядами → заклинание»: заклинание можно сотворить за заряд умения вместо ячейки.
- * Имена матчатся и на английском, и на русском, чтобы работали импорты Plutonium и переводы.
- * @typedef {{ feature: RegExp, spell: RegExp }} FreeCastLink
+ * Сначала сверяется system.identifier (не зависит от перевода), потом имя на английском или русском.
+ * @typedef {{ feature: RegExp, spell: RegExp, featureIds?: string[], spellIds?: string[] }} FreeCastLink
  */
 
 /** @type {FreeCastLink[]} */
@@ -16,8 +16,9 @@ export function registerFreeCastLink(link) {
   if (!installed) install();
 }
 
-const findLink = spell => links.find(l => l.spell.test(spell.name));
-const findFeature = (actor, link) => actor.itemTypes.feat.find(f => link.feature.test(f.name));
+const matches = (item, ids, re) => !!ids?.includes(item.system?.identifier) || re.test(item.name ?? "");
+const findLink = spell => links.find(l => matches(spell, l.spellIds, l.spell));
+const findFeature = (actor, link) => actor.itemTypes.feat.find(f => matches(f, link.featureIds, link.feature));
 
 function install() {
   installed = true;

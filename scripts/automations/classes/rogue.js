@@ -5,7 +5,9 @@ import { damageTypeLabel, debugNote, isEnabled, turnKey } from "../../core/utils
 
 /* Плут: Sneak Attack через DamageBonus-макрос Midi-QOL */
 
-const SNEAK_RE = /sneak\s*attack|скрытая атака/i;
+// Имя может быть переведено («Атака исподтишка»), поэтому сначала — identifier
+const SNEAK_RE = /sneak\s*attack|скрытая атака|атака\s+и[сз]подтишка/i;
+const isSneakItem = f => f.system?.identifier === "sneak-attack" || SNEAK_RE.test(f.name ?? "");
 
 /**
  * Варианты Sneak Attack от подклассов и черт (например, Venomous Strike).
@@ -26,7 +28,7 @@ export function registerSneakAttackVariant(variant) {
   variants.push(variant);
 }
 
-export const getSneakFeature = actor => actor?.itemTypes?.feat?.find(f => SNEAK_RE.test(f.name));
+export const getSneakFeature = actor => actor?.itemTypes?.feat?.find(isSneakItem);
 
 /** Оружие подходит для скрытой атаки: фехтовальное или дальнобойное */
 const isSneakWeapon = item =>
@@ -136,7 +138,7 @@ export default {
   label: "Плут",
   hint: "Sneak Attack: проверка условий, раз в ход, диалог с вариантами подклассов.",
   appliesTo: actor => actor.type === "character" && !!getSneakFeature(actor),
-  watchItem: item => item.type === "feat" && SNEAK_RE.test(item.name),
+  watchItem: item => item.type === "feat" && isSneakItem(item),
 
   // Подключаем DamageBonus-макрос Midi каждому персонажу со Sneak Attack
   async migrate(actor) {

@@ -238,7 +238,8 @@ export default {
     });
 
     onItemUse("webbing", (activity) => {
-      if (activity.type !== "utility" || !PULL_RE.test(activity.name ?? "")) return;
+      // dnd5eactivity000 — Pull Yourself у предмета из книги; у самодельных — по имени
+      if (activity.type !== "utility" || !(activity.id === "dnd5eactivity000" || PULL_RE.test(activity.name ?? ""))) return;
       runAsync("Pull Yourself", () => pullYourself(activity));
     });
   },

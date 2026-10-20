@@ -1,7 +1,7 @@
-import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
+import { LOG, MODULE_ID } from "../../core/constants.js";
 import { onItemUse, onSpellWorkflowComplete, onWorkflowComplete } from "../../core/hooks.js";
 import { applyEffects, attackWorkflow, damageReductionKey, midiActive, onDamaged } from "../../core/native.js";
-import { chat, featById, isActiveGM, migrated, runAsync } from "../../core/utils.js";
+import { chat, featById, isActiveGM, runAsync } from "../../core/utils.js";
 
 /*
  * Псионик (Unearthed Arcana 2025, импорт Plutonium). Перенесено из отдельного модуля psion-automation.
@@ -237,10 +237,10 @@ async function telepathy(activity) {
 /*  Дисциплины                                  */
 /* -------------------------------------------- */
 
-const DISCIPLINE_IDS = [
-  "psionic-disciplines-biofeedback", "psionic-disciplines-destructive-thoughts",
-  "psionic-disciplines-inerrant-aim", "psionic-disciplines-psionic-backlash",
-];
+// Plutonium даёт дисциплины то как «Psionic Disciplines: X» (psionic-disciplines-x), то просто «X» (x)
+const DISCIPLINES = ["biofeedback", "destructive-thoughts", "inerrant-aim", "psionic-backlash", "id-insinuation"];
+const DISCIPLINE_IDS = DISCIPLINES.flatMap(name => [`psionic-disciplines-${name}`, name]);
+const discipline = (actor, name) => featById(actor, `psionic-disciplines-${name}`) ?? featById(actor, name);
 
 const isPsionSpell = item => String(item?.system?.sourceItem ?? item?._source?.system?.sourceItem ?? "").includes("psion");
 
@@ -254,7 +254,7 @@ async function spellDisciplines(workflow, activity) {
   if (maxDice < 1) return;
   const school = item.system.school;
 
-  if (["nec", "trs"].includes(school) && featById(actor, "psionic-disciplines-biofeedback")) {
+  if (["nec", "trs"].includes(school) && discipline(actor, "biofeedback")) {
     const n = await pickCount("Biofeedback",
       `<p>Сотворено <b>${item.name}</b> (${school === "nec" ? "некромантия" : "преобразование"}). `
       + `Потратить кости энергии на временные хиты? (до ${maxDice})</p>`, maxDice);
@@ -269,7 +269,7 @@ async function spellDisciplines(workflow, activity) {
     return;
   }
 
-  if (["con", "evo"].includes(school) && featById(actor, "psionic-disciplines-destructive-thoughts")) {
+  if (["con", "evo"].includes(school) && discipline(actor, "destructive-thoughts")) {
     const forcesSave = (workflow.activity?.save?.ability?.size ?? workflow.activity?.save?.ability?.length ?? 0) > 0
       || (workflow.saves?.size ?? 0) > 0 || (workflow.failedSaves?.size ?? 0) > 0;
     const targets = [...(workflow.targets ?? [])].filter(t => t.actor);
@@ -303,7 +303,7 @@ async function spellDisciplines(workflow, activity) {
 /** Inerrant Aim: после промаха — кость к броску атаки; тратится, только если атака стала попаданием */
 async function inerrantAim(workflow) {
   const actor = workflow?.actor;
-  if (!actor?.isOwner || !featById(actor, "psionic-disciplines-inerrant-aim")) return;
+  if (!actor?.isOwner || !discipline(actor, "inerrant-aim")) return;
   if (!workflow.attackRoll || workflow.aborted || !TurnState.canUseDiscipline(actor)) return;
   if (EnergyDice.available(actor) < 1) return;
 
@@ -388,12 +388,14 @@ async function backlashRetaliation(token, data) {
 /* -------------------------------------------- */
 
 // Умения, которые тратят кость по условию — родной безусловный расход убираем, тратит модуль
-const CONDITIONAL_COST = ["telekinetic-propel", "telepathic-connection", "psionic-disciplines-biofeedback",
-  "psionic-disciplines-destructive-thoughts", "psionic-disciplines-inerrant-aim", "flesh-weaver"];
+const CONDITIONAL_COST = ["telekinetic-propel", "telepathic-connection", "flesh-weaver",
+  ...["biofeedback", "destructive-thoughts", "inerrant-aim"].flatMap(name => [`psionic-disciplines-${name}`, name])];
 
 async function migratePsion(actor) {
+  // Без разовой отметки: Plutonium дописывает расход уже после создания предметов,
+  // поэтому проверка повторяется при каждом прогоне — все правки ниже идемпотентны
   const pool = EnergyDice.pool(actor);
-  if (!pool || migrated(pool, "psionMigrated")) return;
+  if (!pool) return;
   const updates = [];
 
   // Короткий отдых возвращает одну кость
@@ -421,9 +423,9 @@ async function migratePsion(actor) {
     if (Object.keys(update).length > 1) updates.push(update);
   }
 
-  if (updates.length) await actor.updateEmbeddedDocuments("Item", updates);
-  await pool.setFlag(MODULE_ID, "psionMigrated", MIGRATION_VERSION);
-  console.log(`${LOG} Psion у ${actor.name}: данные костей энергии проверены`);
+  if (!updates.length) return;
+  await actor.updateEmbeddedDocuments("Item", updates);
+  console.log(`${LOG} Psion у ${actor.name}: данные костей энергии исправлены (${updates.length})`);
 }
 
 export default {
@@ -450,13 +452,24 @@ export default {
       await chat(activity.item.actor, "<p><b>Psionic Restoration:</b> после минуты медитации все кости энергии восстановлены.</p>");
     }));
     onSpellWorkflowComplete(spellDisciplines);
-    onWorkflowComplete("psionic-disciplines-psionic-backlash", backlash, { saves: true });
+    for (const id of ["psionic-disciplines-psionic-backlash", "psionic-backlash"]) onWorkflowComplete(id, backlash, { saves: true });
+    // Id Insinuation модуль не автоматизирует, но она тоже занимает дисциплину хода
+    for (const id of ["psionic-disciplines-id-insinuation", "id-insinuation"]) {
+      onItemUse(id, (activity) => TurnState.markDiscipline(activity.item.actor));
+    }
 
     // Нельзя использовать без костей; не больше одной дисциплины за ход
-    Hooks.on("dnd5e.preUseActivity", (activity) => {
+    Hooks.on("dnd5e.preUseActivity", (activity, usageConfig) => {
       const identifier = activity?.item?.system?.identifier;
       const actor = activity?.item?.actor;
       if (!actor) return;
+      // Кость по условию тратит модуль: родной расход из запаса снимаем, даже если миграция ещё не дошла
+      if (CONDITIONAL_COST.includes(identifier) && Array.isArray(usageConfig?.consume?.resources)) {
+        const poolId = EnergyDice.pool(actor)?.id;
+        const targets = activity.consumption?.targets ?? [];
+        usageConfig.consume.resources = usageConfig.consume.resources
+          .filter(i => !(targets[i]?.type === "itemUses" && targets[i]?.target === poolId));
+      }
       if (identifier === "telepathic-connection" && EnergyDice.available(actor) < 1) {
         ui.notifications?.warn("Telepathic Connection: все кости энергии израсходованы.");
         return false;

@@ -9,7 +9,9 @@ import { LOG } from "./constants.js";
  * перевёрнутому («Bottle, Glass» против «Glass Bottle») и по названию без плюсов и запятых.
  */
 
-const normalize = s => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const normalize = s => String(s ?? "").toLowerCase().replace(/[^a-z0-9а-яё]/g, "");
+// Имена записи индекса: переведённое Babele и исходное английское
+const entryNames = e => [e.name, e.originalName, e.flags?.babele?.originalName].filter(Boolean).map(normalize);
 
 const variants = (name) => {
   const plain = String(name ?? "");
@@ -30,7 +32,7 @@ export async function findItemData(name) {
     let index;
     try { index = await pack.getIndex(); }
     catch (err) { continue; }
-    const entry = index.find(e => wanted.includes(normalize(e.name)));
+    const entry = index.find(e => entryNames(e).some(n => wanted.includes(n)));
     if (!entry) continue;
     const doc = await pack.getDocument(entry._id);
     if (doc) return doc.toObject();
@@ -48,12 +50,16 @@ export async function findItemData(name) {
 export async function createItemFor(actor, ref, { flags = {}, updates = {} } = {}) {
   const bridge = globalThis.game?.tables5e;
   if (bridge?.importRef && bridge.isReady?.()) {
+    const overrides = foundry.utils.mergeObject(foundry.utils.expandObject(updates), { flags }, { inplace: false });
     const result = await bridge.importRef({
       tag: "item", name: ref.name, source: ref.source, label: ref.label ?? ref.name, count: 1,
-    }, { actor });
+    }, { actor, overrides });
     const item = result.docs?.[0];
     if (item) {
-      await item.update({ ...updates, flags: foundry.utils.mergeObject(item.toObject().flags ?? {}, flags) });
+      // Старый tables-5e не умеет overrides — тогда дописываем отдельным обновлением
+      if (Object.keys(flags).some(scope => !item.flags?.[scope])) {
+        await item.update({ ...updates, flags: foundry.utils.mergeObject(item.toObject().flags ?? {}, flags) });
+      }
       return { item, how: "плютониум" };
     }
     console.warn(`${LOG} «${ref.name}»: Плютониум не дал предмет (${result.reason}), ищем в компендиумах`);

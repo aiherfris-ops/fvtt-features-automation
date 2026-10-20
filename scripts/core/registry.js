@@ -153,19 +153,27 @@ export class AutomationRegistry {
       this.migrateAll().catch(err => console.error(`${LOG} проверка данных не удалась:`, err));
     });
 
+    // Повышение уровня и импорт создают пачку предметов, а Plutonium ещё секунды дописывает их
+    // (расход, связи) — мигрируем актёра один раз, когда предметы перестали меняться,
+    // не глядя на отметку о прошлой миграции: у актёра появились новые данные
+    const schedule = (actor) => {
+      clearTimeout(this.#pending.get(actor.uuid));
+      this.#pending.set(actor.uuid, setTimeout(() => {
+        this.#pending.delete(actor.uuid);
+        this.migrateActor(actor, { force: true });
+      }, 3000));
+    };
     Hooks.on("createItem", (item) => {
       const actor = item.actor;
       if (!actor || !isActiveGM() || !shouldMigrate(actor)) return;
       const relevant = this.enabled.some(a =>
         (a.identifiers ?? []).includes(item.system.identifier) || a.watchItem?.(item));
-      if (!relevant) return;
-      // Повышение уровня создаёт пачку предметов — мигрируем актёра один раз после неё,
-      // не глядя на отметку о прошлой миграции: у актёра появились новые данные
-      clearTimeout(this.#pending.get(actor.uuid));
-      this.#pending.set(actor.uuid, setTimeout(() => {
-        this.#pending.delete(actor.uuid);
-        this.migrateActor(actor, { force: true });
-      }, 250));
+      if (relevant) schedule(actor);
+    });
+    // Пока миграция ждёт, правки предметов того же актёра откладывают её ещё
+    Hooks.on("updateItem", (item) => {
+      const actor = item.actor;
+      if (actor && this.#pending.has(actor.uuid)) schedule(actor);
     });
   }
 }

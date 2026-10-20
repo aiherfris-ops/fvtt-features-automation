@@ -1,7 +1,7 @@
-import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
+import { LOG, MODULE_ID } from "../../core/constants.js";
 import { registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { onItemUse, onPreAttackRoll, onSpellWorkflowComplete, onWorkflowComplete } from "../../core/hooks.js";
-import { chat, featById, isActiveGM, isEnabled, migrated, runAsync } from "../../core/utils.js";
+import { chat, featById, isActiveGM, isEnabled, runAsync } from "../../core/utils.js";
 import { EnergyDice, TurnState, applyDamageSafe, createEffectsSafe, isPsion, legacyModuleActive } from "../classes/psion.js";
 
 /*
@@ -240,8 +240,9 @@ async function empoweredHealing(workflow, activity) {
 /* -------------------------------------------- */
 
 async function migrateMetamorph(actor) {
+  // Без разовой отметки: формы оружия появляются с уровнями и после импорта — проверка идемпотентна
   const core = featById(actor, "organic-weapons") ?? featById(actor, "mutable-form");
-  if (!core || migrated(core, "metamorphMigrated")) return;
+  if (!core) return;
   const updates = [];
 
   // Импорт дал формам только броски урона — добавляем атаки от Интеллекта
@@ -272,8 +273,7 @@ async function migrateMetamorph(actor) {
 
   if (updates.length) await actor.updateEmbeddedDocuments("Item", updates);
   if (featById(actor, "viscera-launcher")) await syncDamageBonusMacro(actor);
-  await core.setFlag(MODULE_ID, "metamorphMigrated", MIGRATION_VERSION);
-  console.log(`${LOG} Metamorph у ${actor.name}: органическое оружие проверено`);
+  if (updates.length) console.log(`${LOG} Metamorph у ${actor.name}: органическое оружие исправлено (${updates.length})`);
 }
 
 /* Viscera Launcher: доп. урон в общем окне бонусов урона */

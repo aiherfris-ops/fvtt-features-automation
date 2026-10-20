@@ -129,7 +129,11 @@ export default {
 
   register() {
     // Диалоги Font of Magic и Metamagic
-    onItemUse("font-of-magic", (activity) => runAsync(activity.item.name, () => (/point/i.test(activity.name ?? "")
+    // Активности Font of Magic: dnd5eactivity000 — Regain Spell Slot, dnd5eactivity001 — Regain Sorcery Points;
+    // у самодельных копий решаем по имени (английскому или русскому)
+    const toPoints = activity => activity.id === "dnd5eactivity001"
+      || (activity.id !== "dnd5eactivity000" && /point|очк/i.test(activity.name ?? ""));
+    onItemUse("font-of-magic", (activity) => runAsync(activity.item.name, () => (toPoints(activity)
       ? slotToPoints(activity.item.actor) : pointsToSlot(activity.item.actor))));
     onItemUse("metamagic-transmuted-spell", (activity) =>
       runAsync(activity.item.name, () => chooseTransmute(activity.item.actor)));
