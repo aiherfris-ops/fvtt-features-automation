@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Подставить версию и ссылки в module.json
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" --arg repo "${{ github.repository }}" --arg tag "$GITHUB_REF_NAME" '
+            .version = $v
+            | .url = "https://github.com/\($repo)"
+            | .manifest = "https://github.com/\($repo)/releases/latest/download/module.json"
+            | .download = "https://github.com/\($repo)/releases/download/\($tag)/module.zip"
+          ' module.json > module.tmp.json
+          mv module.tmp.json module.json
+          cat module.json
+
+      - name: Собрать архив
+        run: zip -r module.zip . -x ".git/*" ".github/*" "*.zip"
+
+      - name: Выложить релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          files: |
+            module.json
+            module.zip
