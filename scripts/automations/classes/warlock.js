@@ -1,6 +1,6 @@
 import { LOG } from "../../core/constants.js";
 import { onWorkflowComplete } from "../../core/hooks.js";
-import { pushTokenAway } from "../../core/native.js";
+import { pushTokenAway } from "../../core/midi.js";
 import { chat, debugNote, isEnabled } from "../../core/utils.js";
 
 /*

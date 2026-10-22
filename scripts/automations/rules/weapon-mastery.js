@@ -1,7 +1,7 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
 import { chat, damageTypeLabel, debugNote, runAsync, turnKey } from "../../core/utils.js";
 import { onPreAttackRoll, onPreDamageRoll } from "../../core/hooks.js";
-import { applyEffects, attackWorkflow, midiActive, pushTokenAway } from "../../core/native.js";
+import { applyEffects, pushTokenAway } from "../../core/midi.js";
 
 /*
  * Weapon Mastery (PHB 2024) — свойства мастерства оружия. dnd5e позволяет выбрать свойство в броске атаки
@@ -210,22 +210,13 @@ export default {
   appliesTo: () => false, // данные не правим, только хуки
 
   register() {
-    if (midiActive()) {
-      Hooks.on("midi-qol.AttackRollComplete", (workflow) => runAsync("Weapon Mastery", () => onAttackRollComplete(workflow)));
-    } else {
-      // Родной путь dnd5e: тот же разбор, но данные берём из броска атаки
-      Hooks.on("dnd5e.rollAttackV2", (rolls, { subject } = {}) => {
-        if (!subject?.actor?.isOwner) return;
-        runAsync("Weapon Mastery", () => onAttackRollComplete(attackWorkflow(subject, rolls)));
-      });
-    }
+    Hooks.on("midi-qol.AttackRollComplete", (workflow) => runAsync("Weapon Mastery", () => onAttackRollComplete(workflow)));
 
-    // Sap: помеха на следующий бросок атаки задетого (без midi флаг midi не работает)
+    // Sap: помеху даёт флаг midi на эффекте, здесь только снимаем отработавший эффект
     onPreAttackRoll((config) => {
       const actor = config?.subject?.actor;
       const sapped = actor?.effects?.filter(e => e.active && e.getFlag(MODULE_ID, "sapped")) ?? [];
       if (!sapped.length) return;
-      config.disadvantage = true;
       setTimeout(() => actor.deleteEmbeddedDocuments("ActiveEffect", sapped.map(e => e.id)), 0);
     });
 

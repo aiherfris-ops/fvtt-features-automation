@@ -1,6 +1,6 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
 import { onWorkflowComplete } from "../../core/hooks.js";
-import { applyEffects, isIncapacitated, onDamaged, removeEffects } from "../../core/native.js";
+import { applyEffects, isIncapacitated, removeEffects } from "../../core/midi.js";
 import { turnExtender } from "../../items/holy-symbol.mjs";
 import { chat, debugNote, featById, isActiveGM, isEnabled, migrated, runAsync } from "../../core/utils.js";
 
@@ -151,10 +151,11 @@ export default {
       if (wrongType.length) lines.push(`<li>обращение не касается: ${wrongType.join(", ")}</li>`);
       await chat(cleric, `<p><strong>Turn Undead</strong></p><ul>${lines.join("")}</ul>`);
       await searUndead(cleric, turned);
-    }, { saves: true });
+    });
 
     // Урон снимает обращение
-    onDamaged(async (actor) => {
+    Hooks.on("midi-qol.isDamaged", async (token) => {
+      const actor = token?.actor ?? token;
       const ids = actor.effects?.filter(e => e.getFlag(MODULE_ID, TURNED)).map(e => e.id) ?? [];
       if (!ids.length) return;
       if (actor.isOwner) await actor.deleteEmbeddedDocuments("ActiveEffect", ids);

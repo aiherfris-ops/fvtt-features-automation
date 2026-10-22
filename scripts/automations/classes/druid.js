@@ -1,6 +1,6 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
 import { onItemUse } from "../../core/hooks.js";
-import { isIncapacitated } from "../../core/native.js";
+import { isIncapacitated } from "../../core/midi.js";
 import { chat, debugNote, isActiveGM, isEnabled, runAsync } from "../../core/utils.js";
 
 /*

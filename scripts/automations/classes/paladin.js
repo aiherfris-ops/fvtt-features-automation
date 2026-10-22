@@ -1,5 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
-import { removeEffects } from "../../core/native.js";
+import { removeEffects } from "../../core/midi.js";
 import { doubleDice, isMeleeWeaponAttack, registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { onItemUse } from "../../core/hooks.js";
 import { chat, debugNote, featById, isEnabled, migrated, runAsync, turnKey } from "../../core/utils.js";

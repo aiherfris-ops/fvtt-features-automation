@@ -1,5 +1,5 @@
 import { LOG, MODULE_ID } from "../../core/constants.js";
-import { isIncapacitated, nearbyTokens } from "../../core/native.js";
+import { isIncapacitated, nearbyTokens } from "../../core/midi.js";
 import { doubleDice, registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { damageTypeLabel, debugNote, isEnabled, turnKey } from "../../core/utils.js";
 

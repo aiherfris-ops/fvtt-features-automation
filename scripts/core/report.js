@@ -1,6 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "./constants.js";
 import { DAMAGE_BONUS_MACRO } from "./damage-bonus.js";
-import { midiActive } from "./native.js";
 import { featById } from "./utils.js";
 
 /*
@@ -55,7 +54,7 @@ const CHECKS = [
   },
 ];
 
-const neededMacro = () => midiActive();
+const midiVersion = () => game.modules.get("midi-qol")?.version ?? "не найден";
 
 /**
  * Собрать отчёт.
@@ -83,7 +82,7 @@ export async function report({ actors = null, chat = true } = {}) {
     const pending = applicable.filter(automation => !done.includes(automation));
 
     const macro = (actor.getFlag("dnd5e", "DamageBonusMacro") ?? "").includes(DAMAGE_BONUS_MACRO);
-    const macroNeeded = neededMacro() && applicable.some(automation => ["paladin", "rogue", "weapon-mastery"].includes(automation.id));
+    const macroNeeded = applicable.some(automation => ["paladin", "rogue", "weapon-mastery"].includes(automation.id));
 
     const checks = [];
     for (const check of CHECKS) {
@@ -105,20 +104,20 @@ export async function report({ actors = null, chat = true } = {}) {
     for (const check of checks.filter(c => !c.ok)) problems.push(`${actor.name}: ${check.label} — не применено`);
   }
 
-  console.log(`${LOG} отчёт о миграции (midi ${midiActive() ? "включён" : "выключен"}, версия миграций ${MIGRATION_VERSION})`);
+  console.log(`${LOG} отчёт о миграции (midi-qol ${midiVersion()}, версия миграций ${MIGRATION_VERSION})`);
   console.table(rows);
   if (problems.length) console.warn(`${LOG} требует внимания:\n` + problems.join("\n"));
 
   if (chat) {
     const head = `<p><strong>Проверка данных</strong> — персонажей ${list.length}, `
-      + `midi-qol ${midiActive() ? "включён" : "выключен"}.</p>`;
+      + `midi-qol ${midiVersion()}.</p>`;
     const body = problems.length
       ? `<p class="notification warning">Не доделано (${problems.length}):</p><ul>`
         + problems.slice(0, 15).map(line => `<li>${line}</li>`).join("") + "</ul>"
       : "<p>Всё на месте: автоматизации помечены, правки в предметах применены"
-        + (neededMacro() ? ", общий макрос бонусов урона подключён" : "") + ".</p>";
+        + ", общий макрос бонусов урона подключён.</p>";
     await ChatMessage.create({ whisper: [game.user.id], content: head + body });
   }
 
-  return { rows, problems, midi: midiActive() };
+  return { rows, problems, midi: midiVersion() };
 }

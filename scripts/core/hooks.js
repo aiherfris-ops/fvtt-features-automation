@@ -1,19 +1,17 @@
 import { LOG } from "./constants.js";
-import { askFailedSaves, midiActive, nativeWorkflow } from "./native.js";
 
 /*
  * Диспетчеры хуков. Раньше каждая автоматизация вешала свой слушатель: на любое действие в мире
  * срабатывало полтора десятка обработчиков, каждый заново проверял «моё ли это умение».
  * Теперь на каждый хук один слушатель, а адресация идёт по ключу: идентификатору предмета или id активности.
  *
- * Без midi-qol «завершение цепочки» — это родной хук использования активности: цели берутся из выбранных
- * игроком, а результаты спасбросков (их dnd5e не бросает сам) спрашиваются окном, если обработчик их ждёт.
+ * «Завершение цепочки» — это `midi-qol.RollComplete`: цели, попадания и проваленные спасброски
+ * уже посчитаны midi, спрашивать у игрока ничего не нужно.
  */
 
 const byItem = new Map();      // system.identifier предмета → [handler]
 const byActivity = new Map();  // id активности → [handler]
 const byWorkflowItem = new Map(); // system.identifier → [handler] для завершённой цепочки
-const workflowNeedsSaves = new Set(); // identifier, которым нужны результаты спасбросков
 const spellWorkflowHandlers = [];
 const attackHandlers = [];
 const damageHandlers = [];
@@ -64,9 +62,8 @@ export function onPreDamageRoll(handler) {
  * Цепочка Midi завершена (известны попадания, проваленные спасброски, цели) для предмета
  * с таким `system.identifier`. Обработчик получает (workflow, activity).
  */
-export function onWorkflowComplete(identifier, handler, { saves = false } = {}) {
+export function onWorkflowComplete(identifier, handler) {
   push(byWorkflowItem, identifier, handler);
-  if (saves) workflowNeedsSaves.add(identifier);
   installWorkflow();
 }
 
@@ -96,30 +93,7 @@ const seenWorkflows = new Set();
 function installWorkflow() {
   if (midiInstalled) return;
   midiInstalled = true;
-  if (midiActive()) installMidi();
-  else installNativeWorkflow();
-}
-
-/** Без midi: завершением считаем использование активности, спасброски уточняем у игрока */
-function installNativeWorkflow() {
-  Hooks.on("dnd5e.postUseActivity", async (activity) => {
-    const item = activity?.item;
-    const identifier = item?.system?.identifier;
-    const handlers = byWorkflowItem.get(identifier) ?? [];
-    const spellHandlers = item?.type === "spell" ? spellWorkflowHandlers : [];
-    if (!handlers.length && !spellHandlers.length) return;
-    if (!activity.actor?.isOwner) return;
-
-    const workflow = nativeWorkflow(activity, {});
-    workflow.saves = new Set();
-    workflow.failedSaves = new Set();
-    if (workflowNeedsSaves.has(identifier) && workflow.targets.size) {
-      const ability = [...(activity.save?.ability ?? [])][0];
-      await askFailedSaves(workflow, { title: item.name, ability, dc: activity.save?.dc?.value });
-    }
-    run(handlers, `завершение ${identifier}`, workflow, activity);
-    run(spellHandlers, "завершение заклинания", workflow, activity);
-  });
+  installMidi();
 }
 
 function installMidi() {

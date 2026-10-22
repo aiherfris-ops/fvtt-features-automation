@@ -1,7 +1,7 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
 import { GEAR_FLAG, refreshGearEffects, wearsHeavyArmor } from "../../core/gear.js";
 import { onItemUse, onPreAttackRoll } from "../../core/hooks.js";
-import { isIncapacitated } from "../../core/native.js";
+import { isIncapacitated } from "../../core/midi.js";
 import { change, chat, debugNote, featById, isActiveGM, isEnabled, migrated, runAsync } from "../../core/utils.js";
 
 /*

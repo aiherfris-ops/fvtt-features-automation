@@ -1,5 +1,5 @@
 import { LOG, MIGRATION_VERSION, MODULE_ID } from "../../core/constants.js";
-import { nearbyTokens } from "../../core/native.js";
+import { nearbyTokens } from "../../core/midi.js";
 import { registerDamageBonusProvider, syncDamageBonusMacro } from "../../core/damage-bonus.js";
 import { onItemUse } from "../../core/hooks.js";
 import { change, chat, damageTypeLabel, featById, isActiveGM, isEnabled, migrated, runAsync, turnKey } from "../../core/utils.js";

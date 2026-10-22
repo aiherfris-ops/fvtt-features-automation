@@ -1,8 +1,7 @@
 import { LOG, MODULE_ID } from "./core/constants.js";
-import { installNativeDamageBonus } from "./core/damage-bonus.js";
 import { installGearConditions } from "./core/gear.js";
 import { registerMigrationSettings, shouldMigrate } from "./core/migration-scope.js";
-import { installAttackMemory, installDamageReduction, installEffectsQuery, midiActive } from "./core/native.js";
+import { installQueries } from "./core/midi.js";
 import { AutomationRegistry } from "./core/registry.js";
 import { report } from "./core/report.js";
 import { dismissReplicated, replicatedItems } from "./automations/classes/artificer.js";
@@ -12,7 +11,7 @@ import automations from "./automations/index.js";
 /*
  * Features Automation — автоматизация классов, подклассов, видов и черт dnd5e.
  * Каждая автоматизация — отдельный файл в scripts/automations/, список — automations/index.js.
- * Без midi-qol те же умения работают на родных хуках dnd5e (core/native.js).
+ * Ветка под midi-qol: рабочий процесс, спасброски и урон берутся из его workflow (core/midi.js).
  */
 
 const registry = new AutomationRegistry(automations);
@@ -44,19 +43,18 @@ Hooks.once("init", () => {
   });
   registerMigrationSettings();
   registry.registerSettings();
-  installEffectsQuery();
+  installQueries();
 });
 
 // Настройки мира доступны с setup — регистрируем хуки только включённых автоматизаций
 Hooks.once("setup", () => {
-  registry.registerHooks();
-  installAttackMemory();
-  installGearConditions();
-  if (!midiActive()) {
-    installNativeDamageBonus();
-    installDamageReduction();
-    console.log(`${LOG} midi-qol не найден: бонусы урона собираются родными средствами dnd5e`);
+  if (!game.modules.get("midi-qol")?.active) {
+    ui.notifications.error("Features Automation (ветка midiqol) работает только вместе с midi-qol.");
+    console.error(`${LOG} midi-qol не найден: эта сборка без него не работает`);
+    return;
   }
+  registry.registerHooks();
+  installGearConditions();
 });
 
 registry.watch();
